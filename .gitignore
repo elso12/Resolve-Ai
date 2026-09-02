@@ -1,0 +1,29 @@
+# Environment & Secrets
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Database & Docker
+*.sqlite3
+pgdata/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
