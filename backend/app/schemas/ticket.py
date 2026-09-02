@@ -80,6 +80,7 @@ class TicketOut(BaseModel):
     resolved_at: Optional[datetime.datetime] = None
     sla_first_response_breached: bool = False
     sla_resolution_breached: bool = False
+    sla_breached: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

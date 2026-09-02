@@ -144,3 +144,21 @@ async def get_analytics_overview(
         volume_by_priority=prio_counts,
         daily_trends=daily_trends,
     )
+
+
+@router.post("/sla/check-now")
+async def trigger_sla_check(
+    current_user: Annotated[User, Depends(require_roles(UserRole.AGENT, UserRole.MANAGER, UserRole.ADMIN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    """
+    Manually triggers SLA evaluation and escalates any overdue tickets.
+    """
+    from app.services.sla_daemon import check_and_escalate_slas
+    escalated = await check_and_escalate_slas(session=db)
+    return {
+        "status": "completed",
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "escalated_count": len(escalated),
+        "escalated_tickets": escalated,
+    }

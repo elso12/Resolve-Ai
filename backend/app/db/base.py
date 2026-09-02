@@ -20,7 +20,7 @@ from sqlalchemy.orm import (
 )
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.ext.compiler import compiles
 
 # ── SQLite Compatibility Compilers for Postgres Types ─────────────────────────
@@ -31,6 +31,11 @@ def compile_vector_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
 
 @compiles(JSONB, "sqlite")
 def compile_jsonb_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
+    return "TEXT"
+
+
+@compiles(TSVECTOR, "sqlite")
+def compile_tsvector_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
     return "TEXT"
 
 

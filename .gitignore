@@ -21,6 +21,9 @@ build/
 
 # Database & Docker
 *.sqlite3
+*.sqlite
+*.db
+local_dev.db
 pgdata/
 
 # OS / IDE

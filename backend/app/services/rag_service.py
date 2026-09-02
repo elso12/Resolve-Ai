@@ -198,16 +198,17 @@ async def answer_question_with_rag(
     2. Retrieve grounded context via pgvector
     3. Generate response strictly grounded on retrieved articles
     """
-    query_vector = await generate_embedding(question)
-    similar_articles = await search_similar_articles(
+    from app.services.hybrid_search_service import hybrid_search_articles
+
+    hybrid_results = await hybrid_search_articles(
         db=db,
         organization_id=organization_id,
-        query_embedding=query_vector,
-        limit=3,
-        max_cosine_distance=0.65,
+        query=question,
+        top_k=3,
+        rrf_k=60,
     )
 
-    if not similar_articles:
+    if not hybrid_results:
         return AskResponse(
             answer=FALLBACK_UNAVAILABLE_MESSAGE,
             sources=[],
@@ -217,7 +218,7 @@ async def answer_question_with_rag(
     context_blocks: list[str] = []
     source_refs: list[ArticleRef] = []
 
-    for article, score in similar_articles:
+    for article, rrf_score, dense_rank, sparse_rank in hybrid_results:
         snippet = article.content[:300].strip() + ("..." if len(article.content) > 300 else "")
         context_blocks.append(
             f"=== ARTICLE: {article.title} (Slug: {article.slug}, Category: {article.category}) ===\n{article.content}"
@@ -228,7 +229,7 @@ async def answer_question_with_rag(
                 title=article.title,
                 slug=article.slug,
                 category=article.category,
-                similarity_score=round(score, 3),
+                similarity_score=round(rrf_score, 4),
                 snippet=snippet,
             )
         )
@@ -237,12 +238,24 @@ async def answer_question_with_rag(
 
     if not openai_client:
         # Grounded heuristic answer when offline
-        primary_article = similar_articles[0][0]
+        primary_article = hybrid_results[0][0]
         heuristic_answer = (
             f"Based on our knowledge base article **'{primary_article.title}'**:\n\n"
             f"{primary_article.content[:400]}...\n\n"
             f"*(Source: [{primary_article.title}](/help/articles/{primary_article.slug}))*"
         )
+        try:
+            from app.services.ai_telemetry_service import log_ai_interaction
+            await log_ai_interaction(
+                organization_id=organization_id,
+                interaction_type="RAG_ANSWER",
+                model_name="mock-heuristic",
+                prompt_tokens=max(1, len(full_context) // 4),
+                completion_tokens=max(1, len(heuristic_answer) // 4),
+                latency_ms=35.0,
+            )
+        except Exception:
+            pass
         return AskResponse(answer=heuristic_answer, sources=source_refs)
 
     prompt = f"""

@@ -3,10 +3,14 @@ import {
   Activity,
   ArrowUpRight,
   BarChart3,
+  CheckCircle,
   Clock,
+  Cpu,
+  DollarSign,
   Layers,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   TrendingUp,
   Zap,
 } from 'lucide-react';
@@ -17,6 +21,23 @@ interface DailyTrendPoint {
   opened: number;
   resolved: number;
   breached: number;
+}
+
+interface AITelemetryData {
+  total_cost_usd: number;
+  avg_latency_ms: number;
+  total_tokens: number;
+  total_interactions: number;
+  copilot_acceptance_rate: number;
+  breakdown_by_type: Record<
+    string,
+    {
+      count: number;
+      total_tokens: number;
+      total_cost_usd: number;
+      avg_latency_ms: number;
+    }
+  >;
 }
 
 interface AnalyticsData {
@@ -36,6 +57,7 @@ interface AnalyticsData {
 export const AnalyticsPage: React.FC = () => {
   const [timeWindow, setTimeWindow] = useState<number>(7);
   const [data, setData] = useState<AnalyticsData | null>(null);
+  const [aiData, setAiData] = useState<AITelemetryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -46,10 +68,17 @@ export const AnalyticsPage: React.FC = () => {
   const fetchAnalytics = async () => {
     setIsRefreshing(true);
     try {
-      const res = await api.get('/analytics/overview', {
-        params: { days: timeWindow },
-      });
-      setData(res.data);
+      const [res, aiRes] = await Promise.allSettled([
+        api.get('/analytics/overview', { params: { days: timeWindow } }),
+        api.get('/analytics/ai'),
+      ]);
+
+      if (res.status === 'fulfilled') {
+        setData(res.value.data);
+      }
+      if (aiRes.status === 'fulfilled') {
+        setAiData(aiRes.value.data);
+      }
     } catch (err) {
       console.warn('Backend analytics API unavailable; loading mock leadership data.', err);
       // Fallback realistic metrics for preview
@@ -222,6 +251,119 @@ export const AnalyticsPage: React.FC = () => {
             <span className="text-amber-400 font-medium">Healthy</span>
           </div>
         </div>
+      </div>
+
+      {/* Enterprise AI Observability & Cost Telemetry Widget */}
+      <div className="bg-gradient-to-r from-purple-950/30 via-neutral-900 to-indigo-950/30 border border-purple-800/40 rounded-xl p-6 backdrop-blur-sm relative overflow-hidden shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-purple-900/40 pb-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-purple-600/20 text-purple-300 border border-purple-500/30">
+              <Sparkles size={20} className="animate-pulse" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                Enterprise AI Efficiency & Telemetry
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                  Observability
+                </span>
+              </h2>
+              <p className="text-xs text-neutral-400 mt-0.5">
+                Live monitoring of LLM token spend, execution latency, and Copilot agent acceptance rate.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-neutral-400">
+            <span>Total AI Operations:</span>
+            <strong className="text-white bg-neutral-800 px-2.5 py-1 rounded border border-neutral-700">
+              {aiData?.total_interactions || 0}
+            </strong>
+          </div>
+        </div>
+
+        {/* AI Metrics Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Total AI Spend */}
+          <div className="bg-neutral-900/80 border border-neutral-800 p-4 rounded-xl">
+            <div className="flex items-center justify-between text-neutral-400 text-xs">
+              <span className="uppercase tracking-wider font-semibold">Total AI Spend</span>
+              <DollarSign size={16} className="text-emerald-400" />
+            </div>
+            <div className="mt-2 text-2xl font-bold text-white font-mono">
+              ${(aiData?.total_cost_usd || 0.0).toFixed(4)}
+            </div>
+            <div className="mt-2 text-[11px] text-neutral-400 flex justify-between pt-2 border-t border-neutral-800/80">
+              <span>Token Cost:</span>
+              <span className="text-emerald-400 font-medium">Sub-cent efficiency</span>
+            </div>
+          </div>
+
+          {/* Average Latency */}
+          <div className="bg-neutral-900/80 border border-neutral-800 p-4 rounded-xl">
+            <div className="flex items-center justify-between text-neutral-400 text-xs">
+              <span className="uppercase tracking-wider font-semibold">Avg AI Latency</span>
+              <Clock size={16} className="text-blue-400" />
+            </div>
+            <div className="mt-2 text-2xl font-bold text-white">
+              {(aiData?.avg_latency_ms || 0.0).toFixed(0)} <span className="text-xs font-normal text-neutral-400">ms</span>
+            </div>
+            <div className="mt-2 text-[11px] text-neutral-400 flex justify-between pt-2 border-t border-neutral-800/80">
+              <span>Performance:</span>
+              <span className="text-blue-400 font-medium">&lt; 3s SLA Target</span>
+            </div>
+          </div>
+
+          {/* Copilot Acceptance Rate */}
+          <div className="bg-neutral-900/80 border border-neutral-800 p-4 rounded-xl">
+            <div className="flex items-center justify-between text-neutral-400 text-xs">
+              <span className="uppercase tracking-wider font-semibold">Copilot Acceptance</span>
+              <CheckCircle size={16} className="text-purple-400" />
+            </div>
+            <div className="mt-2 text-2xl font-bold text-white">
+              {(aiData?.copilot_acceptance_rate ?? 100).toFixed(1)}%
+            </div>
+            <div className="mt-2 text-[11px] text-neutral-400 flex justify-between pt-2 border-t border-neutral-800/80">
+              <span>Agent Evals:</span>
+              <span className="text-purple-400 font-medium">High Alignment</span>
+            </div>
+          </div>
+
+          {/* Total Tokens Consumed */}
+          <div className="bg-neutral-900/80 border border-neutral-800 p-4 rounded-xl">
+            <div className="flex items-center justify-between text-neutral-400 text-xs">
+              <span className="uppercase tracking-wider font-semibold">Tokens Consumed</span>
+              <Cpu size={16} className="text-amber-400" />
+            </div>
+            <div className="mt-2 text-2xl font-bold text-white">
+              {(aiData?.total_tokens || 0).toLocaleString()}
+            </div>
+            <div className="mt-2 text-[11px] text-neutral-400 flex justify-between pt-2 border-t border-neutral-800/80">
+              <span>Prompt + Output:</span>
+              <span className="text-amber-400 font-medium">Live Telemetry</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Breakdown by Operation */}
+        {aiData?.breakdown_by_type && Object.keys(aiData.breakdown_by_type).length > 0 && (
+          <div className="mt-5 pt-4 border-t border-purple-900/30 flex flex-wrap items-center gap-3">
+            <span className="text-xs text-neutral-400 font-medium">Channel Breakdown:</span>
+            {Object.entries(aiData.breakdown_by_type).map(([itype, stats]) => (
+              <div
+                key={itype}
+                className="px-3 py-1 bg-neutral-900/90 border border-neutral-800 rounded-lg text-xs flex items-center gap-2"
+              >
+                <span className="font-semibold text-purple-300 capitalize">
+                  {itype.replace('_', ' ').toLowerCase()}:
+                </span>
+                <span className="text-neutral-300">{stats.count} ops</span>
+                <span className="text-neutral-500">•</span>
+                <span className="text-emerald-400 font-mono">${stats.total_cost_usd.toFixed(4)}</span>
+                <span className="text-neutral-500">•</span>
+                <span className="text-neutral-400">{stats.avg_latency_ms.toFixed(0)}ms</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Visual Charts Grid */}

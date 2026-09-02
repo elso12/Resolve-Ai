@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -38,6 +38,7 @@ from app.services.sla_service import (
     record_first_response,
     record_resolution,
 )
+from app.services.workflow_engine import evaluate_rules
 
 logger = get_logger(__name__)
 
@@ -93,19 +94,73 @@ def verify_ticket_access(ticket: Ticket, user: User) -> None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
 
+async def async_process_ticket_triage_and_actions(ticket_id: int, customer_email: str) -> None:
+    """Non-blocking background task executing AI triage, sentiment classification, and agentic tool decisions."""
+    from app.db.session import async_session_factory
+    from app.services.ai_service import classify_and_triage
+    from app.services.agentic_service import evaluate_and_process_ticket_actions
+    from app.core.websocket import ws_manager
+
+    try:
+        async with async_session_factory() as db:
+            stmt = select(Ticket).where(Ticket.id == ticket_id)
+            res = await db.execute(stmt)
+            ticket = res.scalar_one_or_none()
+            if not ticket:
+                return
+
+            # AI Classification
+            ai_data = await classify_and_triage(ticket.subject, ticket.description)
+            ticket.ai_metadata = ai_data
+
+            new_category = TicketCategory(ai_data["predicted_category"])
+            new_priority = TicketPriority(ai_data["predicted_priority"])
+
+            if ai_data["urgency_score"] >= 4 or ai_data["sentiment"] == "urgent":
+                new_priority = TicketPriority.HIGH
+            if ai_data["urgency_score"] == 5:
+                new_priority = TicketPriority.CRITICAL
+
+            ticket.category = new_category
+            ticket.priority = new_priority
+            ticket.first_response_due_at, ticket.resolution_due_at = calculate_sla_due_dates(
+                new_priority, created_at=ticket.created_at
+            )
+
+            # Agentic tool evaluation
+            await evaluate_and_process_ticket_actions(ticket, db, customer_email=customer_email)
+            await db.commit()
+
+            # Broadcast update via WebSocket
+            await ws_manager.broadcast_to_ticket(
+                str(ticket.id),
+                event_type="TICKET_STATUS_UPDATED",
+                data={
+                    "ticket_id": str(ticket.id),
+                    "status": ticket.status.value,
+                    "priority": ticket.priority.value,
+                    "category": ticket.category.value,
+                },
+            )
+            logger.info("async_ticket_triage_completed", ticket_id=ticket_id, priority=ticket.priority.value)
+    except Exception as exc:
+        logger.error("async_ticket_triage_failed", ticket_id=ticket_id, error=str(exc))
+
+
 # ── Ticket Endpoints ─────────────────────────────────────────────────────────
 
 @router.post("", response_model=TicketOut, status_code=status.HTTP_201_CREATED)
 async def create_ticket(
     payload: TicketCreate,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[User, Depends(require_roles(UserRole.CUSTOMER))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Ticket:
     """
-    Create a new support ticket.
+    Create a new support ticket (< 100ms response time).
     
-    Only Customers can open tickets. The ticket is bound to their organization
-    and customer profile, starting in the OPEN state.
+    Only Customers can open tickets. The ticket is saved immediately, and AI triage,
+    priority scoring, and automated tool checks are dispatched asynchronously in the background.
     """
     if not current_user.customer_profile:
         raise HTTPException(
@@ -114,21 +169,10 @@ async def create_ticket(
         )
 
     ticket_number = generate_ticket_number()
+    priority = payload.priority or TicketPriority.MEDIUM
+    category = payload.category or TicketCategory.GENERAL
 
-    # 1. AI Classification & Triage
-    ai_classification = await classify_and_triage(payload.subject, payload.description)
-    
-    # 2. Extract classified attributes or fallback to user input
-    category = TicketCategory(ai_classification["predicted_category"])
-    priority = TicketPriority(ai_classification["predicted_priority"])
-
-    if ai_classification["urgency_score"] >= 4 or ai_classification["sentiment"] == "urgent":
-        priority = TicketPriority.HIGH
-        
-    if ai_classification["urgency_score"] == 5:
-        priority = TicketPriority.CRITICAL
-
-    # 3. Compute SLA Due Dates
+    # Calculate initial SLA deadlines immediately
     first_resp_due, res_due = calculate_sla_due_dates(priority)
 
     ticket = Ticket(
@@ -139,22 +183,35 @@ async def create_ticket(
         category=category,
         customer_id=current_user.customer_profile.id,
         organization_id=current_user.organization_id,
-        ai_metadata=ai_classification,
         first_response_due_at=first_resp_due,
         resolution_due_at=res_due,
-        # status defaults to OPEN per SQLAlchemy model definition
+        sla_breached=False,
     )
     
     db.add(ticket)
     await db.flush()
     await db.refresh(ticket)
-    
+
+    # Evaluate dynamic ECA workflow automations for TICKET_CREATED
+    try:
+        await evaluate_rules("TICKET_CREATED", ticket, db)
+        await db.commit()
+        await db.refresh(ticket)
+    except Exception as auto_err:
+        logger.warning("automation_rule_evaluation_error", error=str(auto_err))
+
+    # Dispatch AI triage & Agentic Tool execution to non-blocking background queue
+    background_tasks.add_task(
+        async_process_ticket_triage_and_actions,
+        ticket.id,
+        current_user.email,
+    )
+
     logger.info(
-        "ticket_created",
+        "ticket_created_fast",
         ticket_number=ticket_number,
         user_id=current_user.id,
-        ai_category=ai_classification["predicted_category"],
-        ai_priority=ai_classification["predicted_priority"],
+        priority=priority.value,
     )
     
     return ticket
@@ -275,6 +332,12 @@ async def update_ticket_status(
     # SLA Resolution Tracking
     if payload.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED):
         record_resolution(ticket)
+
+    # Evaluate dynamic ECA workflow automations for TICKET_STATUS_CHANGED
+    try:
+        await evaluate_rules("TICKET_STATUS_CHANGED", ticket, db)
+    except Exception as auto_err:
+        logger.warning("automation_rule_evaluation_error", error=str(auto_err))
     
     logger.info(
         "ticket_status_updated",
@@ -282,6 +345,21 @@ async def update_ticket_status(
         new_status=payload.status.value,
         user_id=current_user.id,
     )
+
+    # Broadcast status change event to active WebSocket viewers
+    try:
+        from app.core.websocket import ws_manager
+        await ws_manager.broadcast_to_ticket(
+            str(ticket.id),
+            event_type="TICKET_STATUS_UPDATED",
+            data={
+                "ticket_id": str(ticket.id),
+                "status": ticket.status.value,
+                "updated_by": current_user.full_name,
+            },
+        )
+    except Exception as ws_err:
+        logger.warning("ws_broadcast_status_failed", error=str(ws_err))
     
     return ticket
 
@@ -407,6 +485,22 @@ async def add_message(
         is_internal=payload.is_internal,
         user_id=current_user.id,
     )
+
+    # Broadcast new message event to active WebSocket viewers
+    try:
+        from app.core.websocket import ws_manager
+        from app.schemas.ticket import MessageOut
+        msg_out = MessageOut.model_validate(message).model_dump(mode="json")
+        await ws_manager.broadcast_to_ticket(
+            str(ticket.id),
+            event_type="NEW_MESSAGE",
+            data={
+                "ticket_id": str(ticket.id),
+                "message": msg_out,
+            },
+        )
+    except Exception as ws_err:
+        logger.warning("ws_broadcast_message_failed", error=str(ws_err))
 
     return message
 

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import type { Ticket, TicketStatus, Message } from './types';
+import React, { useState, useEffect, useCallback } from 'react';
+import type { Ticket, TicketStatus, Message, ActionProposal } from './types';
 import {
   Lock,
   Send,
@@ -8,15 +8,19 @@ import {
   UserPlus,
   Loader2,
   Inbox as InboxIcon,
+  ShieldAlert,
+  CheckCircle2,
 } from 'lucide-react';
 import api from '../../../services/api';
 import { useAuth } from '../../../context/AuthContext';
+import { useTicketSocket } from '../../../hooks/useTicketSocket';
 
 interface WorkspacePaneProps {
   ticket: Ticket | null;
   onUpdateStatus: (ticketId: string | number, status: TicketStatus) => Promise<void> | void;
   onAssignTicket: (ticketId: string | number, agentId: number) => Promise<void> | void;
   onSendMessage: (ticketId: string | number, text: string, isInternal: boolean) => Promise<void> | void;
+  onActionExecuted?: () => Promise<void> | void;
   isSendingMessage?: boolean;
 }
 
@@ -43,6 +47,7 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
   onUpdateStatus,
   onAssignTicket,
   onSendMessage,
+  onActionExecuted,
   isSendingMessage = false,
 }) => {
   const { user: currentUser } = useAuth();
@@ -50,6 +55,26 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
   const [replyText, setReplyText] = useState('');
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [assigning, setAssigning] = useState(false);
+
+  // HITL Action Proposals State
+  const [actions, setActions] = useState<ActionProposal[]>([]);
+  const [isApprovingId, setIsApprovingId] = useState<number | null>(null);
+  const [isRejectingId, setIsRejectingId] = useState<number | null>(null);
+
+  // Real-Time WebSocket & Agent Collision Detection
+  const { activeViewers, typingAgents, sendTyping } = useTicketSocket({
+    ticketId: ticket?.id,
+    onMessageReceived: () => {
+      if (onActionExecuted) {
+        onActionExecuted();
+      }
+    },
+    onStatusUpdated: () => {
+      if (onActionExecuted) {
+        onActionExecuted();
+      }
+    },
+  });
 
   // AI Copilot State
   const [summary, setSummary] = useState<{
@@ -59,8 +84,27 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
   } | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [draftReply, setDraftReply] = useState<string | null>(null);
+  const [draftInteractionId, setDraftInteractionId] = useState<number | null>(null);
   const [isDrafting, setIsDrafting] = useState(false);
   const [copilotError, setCopilotError] = useState<string | null>(null);
+
+  // Fetch action proposals for active ticket
+  const fetchActions = useCallback(async () => {
+    if (!ticket?.id) {
+      setActions([]);
+      return;
+    }
+    try {
+      const res = await api.get(`/tickets/${ticket.id}/actions`);
+      setActions(res.data);
+    } catch (err) {
+      console.error('Failed to fetch action proposals:', err);
+    }
+  }, [ticket?.id]);
+
+  useEffect(() => {
+    fetchActions();
+  }, [fetchActions]);
 
   // Reset composer and AI state when ticket changes
   useEffect(() => {
@@ -68,8 +112,41 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
     setComposerMode('public');
     setSummary(null);
     setDraftReply(null);
+    setDraftInteractionId(null);
     setCopilotError(null);
   }, [ticket?.id]);
+
+  const handleApproveAction = async (actionId: number) => {
+    if (!ticket?.id) return;
+    setIsApprovingId(actionId);
+    try {
+      await api.post(`/tickets/${ticket.id}/actions/${actionId}/approve`);
+      await fetchActions();
+      if (onActionExecuted) {
+        await onActionExecuted();
+      }
+    } catch (err) {
+      console.error('Failed to approve action:', err);
+    } finally {
+      setIsApprovingId(null);
+    }
+  };
+
+  const handleRejectAction = async (actionId: number) => {
+    if (!ticket?.id) return;
+    setIsRejectingId(actionId);
+    try {
+      await api.post(`/tickets/${ticket.id}/actions/${actionId}/reject`);
+      await fetchActions();
+      if (onActionExecuted) {
+        await onActionExecuted();
+      }
+    } catch (err) {
+      console.error('Failed to reject action:', err);
+    } finally {
+      setIsRejectingId(null);
+    }
+  };
 
   const handleSummarize = async () => {
     if (!ticket) return;
@@ -93,6 +170,7 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
     try {
       const res = await api.post(`/ai/tickets/${ticket.id}/suggest-reply`);
       setDraftReply(res.data.reply);
+      setDraftInteractionId(res.data.interaction_id || null);
     } catch (err: any) {
       setCopilotError('Failed to generate draft reply. Please try again.');
     } finally {
@@ -100,17 +178,37 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
     }
   };
 
-  const acceptDraft = () => {
+  const acceptDraft = async () => {
     if (draftReply) {
       setReplyText(draftReply);
+      if (draftInteractionId) {
+        try {
+          await api.post(`/analytics/ai/interactions/${draftInteractionId}/feedback`, {
+            feedback: 'ACCEPTED',
+          });
+        } catch (e) {
+          console.debug('Failed to record AI feedback:', e);
+        }
+      }
       setDraftReply(null);
+      setDraftInteractionId(null);
     }
   };
 
-  const editDraft = () => {
+  const editDraft = async () => {
     if (draftReply) {
       setReplyText(draftReply);
+      if (draftInteractionId) {
+        try {
+          await api.post(`/analytics/ai/interactions/${draftInteractionId}/feedback`, {
+            feedback: 'EDITED',
+          });
+        } catch (e) {
+          console.debug('Failed to record AI feedback:', e);
+        }
+      }
       setDraftReply(null);
+      setDraftInteractionId(null);
     }
   };
 
@@ -150,6 +248,7 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
 
   const handleSend = () => {
     if (!replyText.trim() || isSendingMessage) return;
+    sendTyping(false);
     onSendMessage(ticket.id, replyText, composerMode === 'internal');
     setReplyText('');
   };
@@ -235,6 +334,34 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
           </div>
         </div>
 
+        {/* Agent Collision Detection Banner (Zendesk/Intercom style) */}
+        {activeViewers.length > 0 && (
+          <div className="mx-6 mt-3 px-4 py-2.5 bg-amber-950/40 border border-amber-500/40 rounded-xl flex items-center justify-between gap-3 text-amber-200 animate-in fade-in slide-in-from-top-1 duration-200 shadow-md shrink-0">
+            <div className="flex items-center gap-2.5 text-xs font-semibold">
+              <span className="flex h-2.5 w-2.5 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+              </span>
+              <span>
+                ⚠️ <strong>Agent Collision Warning:</strong>{' '}
+                <span className="text-white font-bold">{activeViewers.map((v) => v.full_name).join(', ')}</span>{' '}
+                {activeViewers.length === 1 ? 'is' : 'are'} currently viewing this ticket.
+              </span>
+            </div>
+            <div className="flex -space-x-1.5 overflow-hidden shrink-0">
+              {activeViewers.map((v) => (
+                <div
+                  key={v.user_id}
+                  title={`${v.full_name} (${v.email})`}
+                  className="inline-flex h-6 w-6 rounded-full ring-2 ring-neutral-900 bg-amber-600 text-white text-[10px] font-bold items-center justify-center cursor-help shadow"
+                >
+                  {v.full_name.charAt(0).toUpperCase()}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* AI Copilot Action Bar */}
         {!isClosed && (
           <div className="px-6 py-2 bg-gradient-to-r from-purple-950/40 via-indigo-950/30 to-neutral-900 border-b border-neutral-800 flex items-center justify-between shadow-inner shrink-0">
@@ -272,6 +399,81 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
             </button>
           </div>
         )}
+
+        {/* HITL Action Proposal Banner (Pending Approvals) */}
+        {actions
+          .filter((a) => a.status === 'pending_approval')
+          .map((action) => (
+            <div
+              key={action.id}
+              className="mx-6 mt-4 p-4 bg-gradient-to-r from-amber-950/80 via-neutral-900 to-amber-950/60 border-2 border-amber-500/70 rounded-xl shadow-lg relative shrink-0"
+            >
+              <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg border border-amber-500/40 shrink-0 mt-0.5">
+                    <ShieldAlert size={20} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                        Human-In-The-Loop Action Required
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-red-950 text-red-400 border border-red-800/80">
+                        HIGH RISK ACTION
+                      </span>
+                    </div>
+                    <h4 className="text-sm font-bold text-white mb-1">
+                      Tool Proposed: <code className="text-amber-200 bg-neutral-950 px-1.5 py-0.5 rounded text-xs border border-amber-900/60">{action.tool_name}</code>
+                    </h4>
+                    <div className="mt-2 text-xs text-neutral-300 space-y-1 bg-neutral-950/70 p-2.5 rounded-lg border border-amber-900/40">
+                      {Object.entries(action.parameters).map(([k, v]) => (
+                        <div key={k} className="flex gap-2">
+                          <span className="text-neutral-400 capitalize font-medium">{k.replace('_', ' ')}:</span>
+                          <span className="text-amber-100 font-semibold">{String(v)}</span>
+                        </div>
+                      ))}
+                      {action.estimated_cost > 0 && (
+                        <div className="flex gap-2 pt-1 border-t border-neutral-800 text-amber-300 font-bold">
+                          <span>Financial Value:</span>
+                          <span>${action.estimated_cost.toFixed(2)} USD</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* HITL Control Buttons */}
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-center mt-2 sm:mt-0">
+                  <button
+                    type="button"
+                    onClick={() => handleApproveAction(action.id)}
+                    disabled={isApprovingId === action.id || isRejectingId === action.id}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {isApprovingId === action.id ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <CheckCircle2 size={14} />
+                    )}
+                    <span>Approve & Execute</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRejectAction(action.id)}
+                    disabled={isApprovingId === action.id || isRejectingId === action.id}
+                    className="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-red-300 rounded-lg text-xs font-semibold transition-colors border border-neutral-700 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {isRejectingId === action.id ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <X size={14} />
+                    )}
+                    <span>Dismiss</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
 
         {/* AI Summary Card */}
         {summary && (
@@ -447,6 +649,21 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
 
         {/* Composer */}
         <div className="p-4 bg-neutral-900 border-t border-neutral-800 shrink-0">
+          {/* Live Agent Typing Indicator */}
+          {typingAgents.length > 0 && (
+            <div className="mb-2 px-1 flex items-center gap-2 text-xs text-indigo-300 italic animate-in fade-in duration-150">
+              <span className="flex gap-1 items-center">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce"></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:0.2s]"></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:0.4s]"></span>
+              </span>
+              <span>
+                <strong>{typingAgents.map((a) => a.full_name).join(', ')}</strong>{' '}
+                {typingAgents.length === 1 ? 'is' : 'are'} typing...
+              </span>
+            </div>
+          )}
+
           {isClosed ? (
             <div className="text-center py-3 text-neutral-500 text-xs bg-neutral-950 rounded-lg border border-neutral-800">
               This ticket is closed. Re-open or change status to reply.
@@ -483,7 +700,11 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
               <div className={`p-3 ${composerMode === 'internal' ? 'bg-amber-950/10' : 'bg-neutral-950'}`}>
                 <textarea
                   value={replyText}
-                  onChange={(e) => setReplyText(e.target.value)}
+                  onChange={(e) => {
+                    setReplyText(e.target.value);
+                    sendTyping(e.target.value.length > 0);
+                  }}
+                  onBlur={() => sendTyping(false)}
                   onKeyDown={handleKeyDown}
                   placeholder={
                     composerMode === 'internal'

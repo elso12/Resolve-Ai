@@ -43,37 +43,37 @@ export const InboxPage: React.FC = () => {
     fetchTickets(false);
   }, []);
 
+  const fetchTicketDetails = useCallback(async (id: string | number) => {
+    try {
+      const res = await api.get(`/tickets/${id}`);
+      setSelectedTicket(res.data);
+    } catch (err) {
+      console.error(`Failed to load details for ticket ${id}:`, err);
+      // Fallback to local ticket in state if API fails
+      const fallback = tickets.find(
+        (t) => String(t.id) === String(id) || t.ticket_number === String(id)
+      );
+      if (fallback) {
+        setSelectedTicket(fallback);
+      }
+    }
+  }, [tickets]);
+
   // Fetch full ticket details & messages when selectedTicketId changes
   useEffect(() => {
     if (!selectedTicketId) {
       setSelectedTicket(null);
       return;
     }
+    fetchTicketDetails(selectedTicketId);
+  }, [selectedTicketId, fetchTicketDetails]);
 
-    let isMounted = true;
-    const fetchTicketDetails = async () => {
-      try {
-        const res = await api.get(`/tickets/${selectedTicketId}`);
-        if (isMounted) {
-          setSelectedTicket(res.data);
-        }
-      } catch (err) {
-        console.error(`Failed to load details for ticket ${selectedTicketId}:`, err);
-        // Fallback to local ticket in state if API fails
-        const fallback = tickets.find(
-          (t) => String(t.id) === String(selectedTicketId) || t.ticket_number === String(selectedTicketId)
-        );
-        if (isMounted && fallback) {
-          setSelectedTicket(fallback);
-        }
-      }
-    };
-
-    fetchTicketDetails();
-    return () => {
-      isMounted = false;
-    };
-  }, [selectedTicketId, tickets]);
+  const handleActionExecuted = useCallback(async () => {
+    if (selectedTicketId) {
+      await fetchTicketDetails(selectedTicketId);
+      await fetchTickets(false);
+    }
+  }, [selectedTicketId, fetchTicketDetails]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -203,6 +203,7 @@ export const InboxPage: React.FC = () => {
         onUpdateStatus={handleUpdateStatus}
         onAssignTicket={handleAssignTicket}
         onSendMessage={handleSendMessage}
+        onActionExecuted={handleActionExecuted}
         isSendingMessage={isSendingMessage}
       />
     </div>

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,9 +21,11 @@ from app.models.user import User
 from app.schemas.knowledge import (
     AskRequest,
     AskResponse,
+    HybridSearchResult,
     KnowledgeArticleCreate,
     KnowledgeArticleOut,
 )
+from app.services.hybrid_search_service import hybrid_search_articles
 from app.services.rag_service import answer_question_with_rag, generate_embedding, slugify
 
 logger = get_logger(__name__)
@@ -61,6 +63,34 @@ async def list_articles(
     return list(result.scalars().all())
 
 
+@router.get("/search", response_model=list[HybridSearchResult])
+async def search_articles(
+    q: str = Query(..., min_length=1, description="Query string for Enterprise Hybrid Search"),
+    limit: int = Query(5, ge=1, le=20),
+    db: Annotated[AsyncSession, Depends(get_db)] = None,
+    current_user: Annotated[User, Depends(get_current_user)] = None,
+) -> list[dict[str, Any]]:
+    """
+    Enterprise Hybrid Search combining Dense Vector pgvector + Sparse Lexical FTS + RRF.
+    """
+    org_id = current_user.organization_id if current_user else 1
+    fused_results = await hybrid_search_articles(
+        db=db,
+        organization_id=org_id,
+        query=q,
+        top_k=limit,
+    )
+    return [
+        {
+            "article": article,
+            "rrf_score": round(score, 5),
+            "dense_rank": d_rank,
+            "sparse_rank": s_rank,
+        }
+        for article, score, d_rank, s_rank in fused_results
+    ]
+
+
 @router.get("/articles/{slug}", response_model=KnowledgeArticleOut)
 async def get_article_by_slug(
     slug: str,
@@ -85,14 +115,35 @@ async def get_article_by_slug(
     return article
 
 
+async def async_generate_article_embedding(article_id: int, full_text: str) -> None:
+    """Asynchronously compute and store vector embedding for article."""
+    from app.db.session import async_session_factory
+    from app.services.rag_service import generate_embedding
+
+    try:
+        vec = await generate_embedding(full_text)
+        async with async_session_factory() as db:
+            stmt = select(KnowledgeArticle).where(KnowledgeArticle.id == article_id)
+            res = await db.execute(stmt)
+            art = res.scalar_one_or_none()
+            if art:
+                art.embedding = vec
+                await db.commit()
+                logger.info("async_article_embedding_saved", article_id=article_id)
+    except Exception as exc:
+        logger.error("async_article_embedding_failed", article_id=article_id, error=str(exc))
+
+
 @router.post("/articles", response_model=KnowledgeArticleOut, status_code=status.HTTP_201_CREATED)
 async def create_article(
     payload: KnowledgeArticleCreate,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[User, Depends(require_roles(UserRole.AGENT, UserRole.MANAGER, UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> KnowledgeArticle:
     """
-    Create a new knowledge article with automatic vector embedding generation.
+    Create a new knowledge article (< 100ms response time).
+    Vector embedding is computed and persisted asynchronously via BackgroundTasks.
     Requires Agent, Manager, or Admin role.
     """
     base_slug = slugify(payload.title)
@@ -108,17 +159,13 @@ async def create_article(
         slug = f"{base_slug}-{counter}"
         counter += 1
 
-    # Generate 1536-dim embedding for Title + Content
-    full_text = f"{payload.title}\n\n{payload.content}"
-    embedding_vector = await generate_embedding(full_text)
-
     article = KnowledgeArticle(
         title=payload.title,
         slug=slug,
         content=payload.content,
         category=payload.category,
         is_published=payload.is_published,
-        embedding=embedding_vector,
+        embedding=None,
         organization_id=current_user.organization_id,
     )
 
@@ -126,8 +173,12 @@ async def create_article(
     await db.flush()
     await db.refresh(article)
 
+    # Dispatch embedding generation to non-blocking background queue
+    full_text = f"{payload.title}\n\n{payload.content}"
+    background_tasks.add_task(async_generate_article_embedding, article.id, full_text)
+
     logger.info(
-        "knowledge_article_created",
+        "knowledge_article_created_fast",
         article_id=article.id,
         slug=article.slug,
         author_id=current_user.id,

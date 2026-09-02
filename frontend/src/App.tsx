@@ -10,7 +10,7 @@ import { TicketDetailPage } from './pages/customer/TicketDetailPage';
 import { KnowledgeBasePage } from './pages/customer/KnowledgeBasePage';
 import { InboxPage } from './pages/agent/InboxPage';
 import { AnalyticsPage } from './pages/manager/AnalyticsPage';
-
+import { AutomationsPage } from './pages/manager/AutomationsPage';
 
 import { LoginPage } from './pages/auth/LoginPage';
 
@@ -68,6 +68,7 @@ const App: React.FC = () => {
             <Route index element={<AnalyticsPage />} />
             <Route path="inbox" element={<InboxPage />} />
             <Route path="analytics" element={<AnalyticsPage />} />
+            <Route path="automations" element={<AutomationsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

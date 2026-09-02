@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Inbox, Activity, Settings, Bell, Search, LayoutDashboard } from 'lucide-react';
+import { Inbox, Activity, Settings, Bell, Search, LayoutDashboard, Workflow } from 'lucide-react';
 
 export const AgentLayout: React.FC = () => {
   const { user, logout } = useAuth();
@@ -10,6 +10,7 @@ export const AgentLayout: React.FC = () => {
     { name: 'Dashboard', path: '/agent', icon: LayoutDashboard },
     { name: 'Inbox', path: '/agent/inbox', icon: Inbox },
     { name: 'Analytics', path: '/agent/analytics', icon: Activity },
+    { name: 'Automations', path: '/agent/automations', icon: Workflow },
     { name: 'Settings', path: '/agent/settings', icon: Settings },
   ];
 

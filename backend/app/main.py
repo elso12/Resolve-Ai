@@ -10,6 +10,7 @@ Sets up the FastAPI application with:
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -30,6 +31,11 @@ from app.api.tickets import router as tickets_router
 from app.api.ai import router as ai_router
 from app.api.knowledge import router as knowledge_router
 from app.api.analytics import router as analytics_router
+from app.api.actions import router as actions_router
+from app.api.ws import router as ws_router
+from app.api.ai_telemetry import router as ai_telemetry_router
+from app.api.automations import router as automations_router
+from app.core.websocket import ws_manager
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 setup_logging()
@@ -77,9 +83,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Don't raise — allow the app to start so the /health endpoint can
         # report the failure.
 
+    # Initialize WebSocket broker & manager
+    await ws_manager.initialize()
+
+    # Start periodic SLA monitoring daemon
+    from app.services.sla_daemon import periodic_sla_daemon
+    sla_task = asyncio.create_task(periodic_sla_daemon(interval_seconds=60))
+
     yield
 
     # Shutdown
+    sla_task.cancel()
+    try:
+        await sla_task
+    except (asyncio.CancelledError, Exception):
+        pass
+
+    await ws_manager.shutdown()
     await engine.dispose()
     logger.info("application_shutdown")
 
@@ -97,9 +117,13 @@ app = FastAPI(
 # Include routers
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(tickets_router, prefix=settings.API_V1_STR)
+app.include_router(actions_router, prefix=settings.API_V1_STR)
 app.include_router(ai_router, prefix=settings.API_V1_STR)
 app.include_router(knowledge_router, prefix=settings.API_V1_STR)
 app.include_router(analytics_router, prefix=settings.API_V1_STR)
+app.include_router(ws_router, prefix=settings.API_V1_STR)
+app.include_router(ai_telemetry_router, prefix=settings.API_V1_STR)
+app.include_router(automations_router, prefix=settings.API_V1_STR)
 
 
 # ── CORS Middleware ──────────────────────────────────────────────────────────

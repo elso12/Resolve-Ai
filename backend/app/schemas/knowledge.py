@@ -49,3 +49,11 @@ class AskRequest(BaseModel):
 class AskResponse(BaseModel):
     answer: str = Field(..., description="Grounded answer generated from knowledge base")
     sources: list[ArticleRef] = Field(default_factory=list, description="Referenced source articles")
+
+
+class HybridSearchResult(BaseModel):
+    article: KnowledgeArticleOut
+    rrf_score: float = Field(..., description="Reciprocal Rank Fusion score")
+    dense_rank: int | None = Field(None, description="Rank in dense vector search (1-indexed)")
+    sparse_rank: int | None = Field(None, description="Rank in sparse lexical search (1-indexed)")
+

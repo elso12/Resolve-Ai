@@ -65,7 +65,7 @@ async def get_ticket_messages_for_ai(ticket_id: int | str, user: User, db: Async
             "message": msg.body
         })
 
-    return conversation
+    return conversation, ticket
 
 
 @router.post("/{ticket_id}/summarize", response_model=ThreadSummaryOut)
@@ -75,10 +75,14 @@ async def summarize_ticket_thread(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
     """Summarize the entire conversation history of a ticket."""
-    conversation = await get_ticket_messages_for_ai(ticket_id, current_user, db)
+    conversation, ticket = await get_ticket_messages_for_ai(ticket_id, current_user, db)
     
     logger.info("ai_summarize_request", ticket_id=ticket_id, user_id=current_user.id)
-    summary = await summarize_thread(conversation)
+    summary = await summarize_thread(
+        conversation,
+        organization_id=current_user.organization_id,
+        ticket_id=ticket.id,
+    )
     
     return summary
 
@@ -90,9 +94,13 @@ async def suggest_ticket_reply(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
     """Generate a context-aware suggested reply based on the ticket history."""
-    conversation = await get_ticket_messages_for_ai(ticket_id, current_user, db)
+    conversation, ticket = await get_ticket_messages_for_ai(ticket_id, current_user, db)
     
     logger.info("ai_suggest_reply_request", ticket_id=ticket_id, user_id=current_user.id)
-    reply_text = await suggest_reply(conversation)
+    reply_data = await suggest_reply(
+        conversation,
+        organization_id=current_user.organization_id,
+        ticket_id=ticket.id,
+    )
     
-    return {"reply": reply_text}
+    return reply_data

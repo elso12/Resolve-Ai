@@ -10,6 +10,8 @@ All ORM models are imported here so that:
 """
 
 from app.models.enums import (
+    ActionRiskLevel,
+    ActionStatus,
     TicketCategory,
     TicketPriority,
     TicketStatus,
@@ -21,6 +23,9 @@ from app.models.customer import Customer
 from app.models.ticket import Ticket
 from app.models.ticket_message import TicketMessage
 from app.models.knowledge import KnowledgeArticle
+from app.models.action import ActionProposal
+from app.models.ai_telemetry import AIInteraction
+from app.models.automation import AutomationRule
 
 __all__: list[str] = [
     # Enums
@@ -28,6 +33,8 @@ __all__: list[str] = [
     "TicketStatus",
     "TicketPriority",
     "TicketCategory",
+    "ActionStatus",
+    "ActionRiskLevel",
     # Models
     "Organization",
     "User",
@@ -35,4 +42,7 @@ __all__: list[str] = [
     "Ticket",
     "TicketMessage",
     "KnowledgeArticle",
+    "ActionProposal",
+    "AIInteraction",
+    "AutomationRule",
 ]

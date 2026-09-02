@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from app.models.organization import Organization
     from app.models.user import User
     from app.models.ticket_message import TicketMessage
+    from app.models.action import ActionProposal
 
 
 class Ticket(TimestampMixin, Base):
@@ -116,6 +117,13 @@ class Ticket(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
+    sla_breached: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+        index=True,
+    )
 
     # ── Foreign keys ─────────────────────────────────────────────────────
     customer_id: Mapped[int] = mapped_column(
@@ -154,6 +162,13 @@ class Ticket(TimestampMixin, Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         order_by="TicketMessage.created_at",
+    )
+    actions: Mapped[list["ActionProposal"]] = relationship(
+        "ActionProposal",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ActionProposal.created_at",
     )
 
     def __repr__(self) -> str:

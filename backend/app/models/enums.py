@@ -53,3 +53,20 @@ class TicketCategory(str, enum.Enum):
     TECHNICAL = "technical"
     ACCOUNT = "account"
     GENERAL = "general"
+
+
+class ActionStatus(str, enum.Enum):
+    """Status lifecycle for an agentic tool proposal."""
+
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXECUTED = "executed"
+
+
+class ActionRiskLevel(str, enum.Enum):
+    """Risk tier of an automated tool action."""
+
+    LOW = "low"
+    HIGH = "high"
+
