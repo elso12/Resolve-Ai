@@ -27,6 +27,7 @@ class Environment(str, Enum):
     DEVELOPMENT = "development"
     STAGING = "staging"
     PRODUCTION = "production"
+    TESTING = "testing"
 
 
 class Settings(BaseSettings):
