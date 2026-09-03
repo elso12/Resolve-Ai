@@ -31,7 +31,6 @@ from app.schemas.ticket import (
     TicketStatusUpdate,
 )
 from app.services.ticket_service import generate_ticket_number, validate_transition
-from app.services.ai_service import classify_and_triage
 from app.services.sla_service import (
     calculate_sla_due_dates,
     evaluate_active_ticket_sla,
@@ -39,6 +38,8 @@ from app.services.sla_service import (
     record_resolution,
 )
 from app.services.workflow_engine import evaluate_rules
+from app.core.metrics import record_ticket_created
+from app.services.webhook_service import dispatch_webhook_event
 
 logger = get_logger(__name__)
 
@@ -191,6 +192,7 @@ async def create_ticket(
     db.add(ticket)
     await db.flush()
     await db.refresh(ticket)
+    record_ticket_created(ticket.category.value, ticket.priority.value)
 
     # Evaluate dynamic ECA workflow automations for TICKET_CREATED
     try:
@@ -199,6 +201,25 @@ async def create_ticket(
         await db.refresh(ticket)
     except Exception as auto_err:
         logger.warning("automation_rule_evaluation_error", error=str(auto_err))
+
+    # Dispatch outbound webhook to external integrations
+    try:
+        await dispatch_webhook_event(
+            event_type="TICKET_CREATED",
+            data={
+                "ticket_id": ticket.id,
+                "ticket_number": ticket.ticket_number,
+                "subject": ticket.subject,
+                "description": ticket.description,
+                "category": ticket.category.value,
+                "priority": ticket.priority.value,
+                "status": ticket.status.value,
+            },
+            organization_id=ticket.organization_id,
+            session=db,
+        )
+    except Exception as hook_err:
+        logger.warning("webhook_dispatch_error", error=str(hook_err))
 
     # Dispatch AI triage & Agentic Tool execution to non-blocking background queue
     background_tasks.add_task(

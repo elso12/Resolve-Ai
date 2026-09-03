@@ -26,6 +26,7 @@ from app.models.knowledge import KnowledgeArticle
 from app.models.action import ActionProposal
 from app.models.ai_telemetry import AIInteraction
 from app.models.automation import AutomationRule
+from app.models.webhook import WebhookSubscription
 
 __all__: list[str] = [
     # Enums
@@ -45,4 +46,5 @@ __all__: list[str] = [
     "ActionProposal",
     "AIInteraction",
     "AutomationRule",
+    "WebhookSubscription",
 ]

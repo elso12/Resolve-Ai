@@ -60,6 +60,7 @@ export const AnalyticsPage: React.FC = () => {
   const [aiData, setAiData] = useState<AITelemetryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAnalytics();
@@ -67,6 +68,7 @@ export const AnalyticsPage: React.FC = () => {
 
   const fetchAnalytics = async () => {
     setIsRefreshing(true);
+    setError(null);
     try {
       const [res, aiRes] = await Promise.allSettled([
         api.get('/analytics/overview', { params: { days: timeWindow } }),
@@ -75,44 +77,14 @@ export const AnalyticsPage: React.FC = () => {
 
       if (res.status === 'fulfilled') {
         setData(res.value.data);
+      } else {
+        setError('Backend analytics service is unavailable.');
       }
       if (aiRes.status === 'fulfilled') {
         setAiData(aiRes.value.data);
       }
-    } catch (err) {
-      console.warn('Backend analytics API unavailable; loading mock leadership data.', err);
-      // Fallback realistic metrics for preview
-      setData({
-        total_tickets: 148,
-        open_tickets: 24,
-        in_progress_tickets: 18,
-        resolved_today: 12,
-        sla_breached_count: 6,
-        sla_compliance_rate: 95.9,
-        avg_mtta_minutes: 14.2,
-        avg_mttr_hours: 2.8,
-        volume_by_category: {
-          BILLING: 42,
-          TECHNICAL: 58,
-          ACCOUNT: 31,
-          GENERAL: 17,
-        },
-        volume_by_priority: {
-          CRITICAL: 12,
-          HIGH: 38,
-          MEDIUM: 64,
-          LOW: 34,
-        },
-        daily_trends: [
-          { date: 'Mon', opened: 18, resolved: 16, breached: 1 },
-          { date: 'Tue', opened: 24, resolved: 22, breached: 0 },
-          { date: 'Wed', opened: 21, resolved: 19, breached: 2 },
-          { date: 'Thu', opened: 28, resolved: 26, breached: 1 },
-          { date: 'Fri', opened: 26, resolved: 25, breached: 0 },
-          { date: 'Sat', opened: 14, resolved: 15, breached: 1 },
-          { date: 'Sun', opened: 17, resolved: 18, breached: 1 },
-        ],
-      });
+    } catch {
+      setError('Backend analytics service is unavailable.');
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -124,6 +96,20 @@ export const AnalyticsPage: React.FC = () => {
       <div className="flex-1 flex items-center justify-center p-12 text-neutral-400">
         <RefreshCw className="animate-spin text-purple-500 mr-2" size={24} />
         <span className="text-sm font-medium">Aggregating real-time SLA metrics...</span>
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-neutral-400">
+        <p className="text-sm font-medium text-red-400 mb-3">{error}</p>
+        <button
+          onClick={fetchAnalytics}
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-700 transition-colors"
+        >
+          <RefreshCw size={14} /> Retry
+        </button>
       </div>
     );
   }

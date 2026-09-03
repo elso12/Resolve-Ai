@@ -6,7 +6,7 @@ Handles article listing, management, and grounded Q&A generation via pgvector.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
@@ -26,7 +26,7 @@ from app.schemas.knowledge import (
     KnowledgeArticleOut,
 )
 from app.services.hybrid_search_service import hybrid_search_articles
-from app.services.rag_service import answer_question_with_rag, generate_embedding, slugify
+from app.services.rag_service import answer_question_with_rag, slugify
 
 logger = get_logger(__name__)
 

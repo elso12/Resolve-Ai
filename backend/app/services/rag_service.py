@@ -301,6 +301,6 @@ STRICT GROUNDING RULES:
     except Exception as e:
         logger.error("rag_generation_error", error=str(e))
         return AskResponse(
-            answer=f"According to **{similar_articles[0][0].title}**:\n\n{similar_articles[0][0].content[:300]}...",
+            answer=f"According to **{primary_article.title}**:\n\n{primary_article.content[:300]}...",
             sources=source_refs,
         )

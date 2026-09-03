@@ -23,6 +23,7 @@ from app.models.enums import TicketPriority, TicketStatus, UserRole
 from app.models.ticket import Ticket
 from app.models.ticket_message import TicketMessage
 from app.models.user import User
+from app.core.metrics import record_sla_breach
 
 logger = get_logger(__name__)
 
@@ -89,6 +90,7 @@ async def _evaluate_tickets(
                 ticket.sla_first_response_breached = True
                 is_breached = True
                 reasons.append("First response deadline passed.")
+                record_sla_breach("first_response", ticket.priority.value)
 
         # 2. Check Resolution SLA Breach
         res_due = ticket.resolution_due_at
@@ -99,6 +101,7 @@ async def _evaluate_tickets(
                 ticket.sla_resolution_breached = True
                 is_breached = True
                 reasons.append("Resolution deadline passed.")
+                record_sla_breach("resolution", ticket.priority.value)
 
         # If already flagged as general breach but milestone is new, or newly breached
         if is_breached or (
@@ -170,6 +173,27 @@ async def _evaluate_tickets(
                 )
             except Exception as ws_err:
                 logger.warning("sla_websocket_broadcast_failed", error=str(ws_err))
+
+            # Dispatch outbound webhook to external integrations
+            try:
+                from app.services.webhook_service import dispatch_webhook_event
+                await dispatch_webhook_event(
+                    event_type="SLA_BREACHED",
+                    data={
+                        "ticket_id": ticket.id,
+                        "ticket_number": ticket.ticket_number,
+                        "subject": ticket.subject,
+                        "priority": ticket.priority.value,
+                        "previous_priority": previous_priority.value,
+                        "reason": reason_str,
+                        "sla_first_response_breached": ticket.sla_first_response_breached,
+                        "sla_resolution_breached": ticket.sla_resolution_breached,
+                    },
+                    organization_id=ticket.organization_id,
+                    session=db,
+                )
+            except Exception as hook_err:
+                logger.warning("webhook_dispatch_error", error=str(hook_err))
 
             logger.warning(
                 "sla_breach_escalated",

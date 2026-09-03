@@ -23,6 +23,7 @@ from app.models.ticket_message import TicketMessage
 from app.models.user import User
 from app.schemas.action import ActionApprovalResponse, ActionProposalOut
 from app.services.tools.tool_registry import execute_tool
+from app.services.webhook_service import dispatch_webhook_event
 
 logger = get_logger(__name__)
 
@@ -125,6 +126,26 @@ async def approve_action_proposal(
         tool=proposal.tool_name,
         agent_id=current_user.id,
     )
+
+    # Dispatch outbound webhook to external integrations
+    try:
+        await dispatch_webhook_event(
+            event_type="ACTION_APPROVED",
+            data={
+                "action_id": proposal.id,
+                "ticket_id": ticket.id,
+                "ticket_number": ticket.ticket_number,
+                "tool_name": proposal.tool_name,
+                "parameters": proposal.parameters,
+                "execution_result": execution_result,
+                "approved_by_id": current_user.id,
+                "approved_by_name": current_user.full_name,
+            },
+            organization_id=ticket.organization_id,
+            session=db,
+        )
+    except Exception as hook_err:
+        logger.warning("webhook_dispatch_error", error=str(hook_err))
 
     return ActionApprovalResponse(
         proposal=ActionProposalOut.model_validate(proposal),

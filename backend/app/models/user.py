@@ -8,7 +8,6 @@ driven by the ``role`` column.
 
 from __future__ import annotations
 
-import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, String, Boolean, Enum as SAEnum

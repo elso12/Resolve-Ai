@@ -59,7 +59,6 @@ export const NewTicketPage: React.FC = () => {
         state: { showSuccess: true },
       });
     } catch (err: any) {
-      console.error('Failed to create ticket:', err);
       const detail = err.response?.data?.detail;
       setError(
         typeof detail === 'string'

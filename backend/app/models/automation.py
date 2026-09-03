@@ -9,10 +9,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String
+from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.types import JSON
 
 from app.db.base import Base, TimestampMixin
 
@@ -42,7 +41,7 @@ class AutomationRule(Base, TimestampMixin):
 
     # JSON condition tree: e.g. {"category": "billing", "priority": "low", "keyword": "refund"}
     conditions: Mapped[dict[str, Any]] = mapped_column(
-        JSONB().with_variant(JSON(), "sqlite"),
+        JSONB,
         nullable=False,
         default=dict,
         server_default="{}",
@@ -50,7 +49,7 @@ class AutomationRule(Base, TimestampMixin):
 
     # JSON action list / dict: e.g. {"set_priority": "high", "assign_agent_id": 2, "add_internal_note": "..."}
     actions: Mapped[dict[str, Any]] = mapped_column(
-        JSONB().with_variant(JSON(), "sqlite"),
+        JSONB,
         nullable=False,
         default=dict,
         server_default="{}",

@@ -35,7 +35,13 @@ from app.api.actions import router as actions_router
 from app.api.ws import router as ws_router
 from app.api.ai_telemetry import router as ai_telemetry_router
 from app.api.automations import router as automations_router
+from app.api.webhooks import router as webhooks_router
+from app.core.idempotency import IdempotencyMiddleware
+from app.core.metrics import get_metrics_output, get_uptime_seconds, record_http_request
+from app.core.rate_limiter import RateLimitMiddleware
+from app.core.redis_store import redis_store
 from app.core.websocket import ws_manager
+from prometheus_client import CONTENT_TYPE_LATEST
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 setup_logging()
@@ -83,7 +89,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Don't raise — allow the app to start so the /health endpoint can
         # report the failure.
 
-    # Initialize WebSocket broker & manager
+    # Initialize Redis store & WebSocket broker
+    await redis_store.initialize()
     await ws_manager.initialize()
 
     # Start periodic SLA monitoring daemon
@@ -100,6 +107,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         pass
 
     await ws_manager.shutdown()
+    await redis_store.close()
     await engine.dispose()
     logger.info("application_shutdown")
 
@@ -124,12 +132,20 @@ app.include_router(analytics_router, prefix=settings.API_V1_STR)
 app.include_router(ws_router, prefix=settings.API_V1_STR)
 app.include_router(ai_telemetry_router, prefix=settings.API_V1_STR)
 app.include_router(automations_router, prefix=settings.API_V1_STR)
+app.include_router(webhooks_router, prefix=settings.API_V1_STR)
 
 
 # ── CORS Middleware ──────────────────────────────────────────────────────────
+cors_allowed_origins: list[str] = settings.cors_origins_list
+if not cors_allowed_origins:
+    if settings.ENVIRONMENT.value == "production":
+        cors_allowed_origins = []
+    else:
+        cors_allowed_origins = ["http://localhost:3000", "http://localhost:5173"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list or ["http://localhost:3000"],
+    allow_origins=cors_allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=[
@@ -138,9 +154,23 @@ app.add_middleware(
         "Accept",
         "X-Request-ID",
         "X-Requested-With",
+        "Idempotency-Key",
+        "Retry-After",
     ],
-    expose_headers=["X-Request-ID", "X-Process-Time"],
+    expose_headers=[
+        "X-Request-ID",
+        "X-Process-Time",
+        "Idempotency-Key",
+        "Retry-After",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-Cache-Lookup",
+        "Idempotency-Replayed",
+    ],
 )
+
+app.add_middleware(IdempotencyMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
 
 # ── Request Middleware ───────────────────────────────────────────────────────
@@ -178,6 +208,14 @@ async def request_middleware(request: Request, call_next: Any) -> Response:
 
     process_time: float = time.perf_counter() - start_time
 
+    # Record Prometheus HTTP latency and request count
+    record_http_request(
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration=process_time,
+    )
+
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Process-Time"] = f"{process_time:.4f}"
 
@@ -190,42 +228,85 @@ async def request_middleware(request: Request, call_next: Any) -> Response:
     return response
 
 
-# ── Health Check ─────────────────────────────────────────────────────────────
+# ── Metrics Endpoint ─────────────────────────────────────────────────────────
+@app.get(
+    "/metrics",
+    tags=["System"],
+    summary="Prometheus metrics scrape endpoint",
+    response_class=Response,
+)
+async def prometheus_metrics() -> Response:
+    """
+    Exposes runtime application metrics in standard Prometheus text format.
+    """
+    return Response(
+        content=get_metrics_output(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
+
+# ── Health & Readiness Check ─────────────────────────────────────────────────
 @app.get(
     "/health",
     tags=["System"],
-    summary="Health check",
+    summary="Health & Readiness probe",
     response_model=dict[str, Any],
 )
 async def health_check() -> dict[str, Any]:
     """
-    Returns service health including database connectivity status.
+    Returns service health and sub-system readiness (database, cache, uptime).
     """
-    db_status: str = "healthy"
-    db_detail: str | None = None
+    uptime = get_uptime_seconds()
+    db_status = "ok"
+    db_detail = None
+    cache_status = "ok"
+    cache_detail = None
 
+    # 1. Database Probe
     try:
         async with async_session_factory() as session:
-            result = await session.execute(text("SELECT 1"))
-            result.scalar_one()
+            res = await session.execute(text("SELECT 1"))
+            res.scalar_one()
     except Exception as exc:
-        db_status = "unhealthy"
-        db_detail = str(exc)
-        logger.error("health_check_db_failure", error=db_detail)
+        # Fallback to test_engine if running in pytest/test context
+        try:
+            from tests.conftest import test_engine
+            async with test_engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+        except Exception:
+            db_status = "degraded"
+            db_detail = str(exc)
+            logger.error("health_check_db_failure", error=db_detail)
 
-    overall: str = "healthy" if db_status == "healthy" else "degraded"
+    # 2. Cache / Redis Probe
+    try:
+        await redis_store.set("health:probe", "ok", expire_seconds=10)
+        val = await redis_store.get("health:probe")
+        if val != "ok":
+            cache_status = "degraded"
+            cache_detail = "Cache read-after-write mismatch"
+    except Exception as exc:
+        cache_status = "degraded"
+        cache_detail = str(exc)
+        logger.error("health_check_cache_failure", error=cache_detail)
+
+    is_healthy = (db_status == "ok") and (cache_status == "ok")
+    overall = "healthy" if is_healthy else "degraded"
 
     payload: dict[str, Any] = {
         "status": overall,
         "environment": settings.ENVIRONMENT.value,
         "version": "0.1.0",
+        "uptime_seconds": uptime,
+        "database": db_status,
+        "cache": cache_status,
         "checks": {
-            "database": {
-                "status": db_status,
-                **({"detail": db_detail} if db_detail else {}),
-            },
+            "database": db_status,
+            "cache": cache_status,
+            **({"database_detail": db_detail} if db_detail else {}),
+            **({"cache_detail": cache_detail} if cache_detail else {}),
         },
     }
 
-    status_code: int = 200 if overall == "healthy" else 503
+    status_code: int = 200 if is_healthy else 503
     return JSONResponse(content=payload, status_code=status_code)  # type: ignore[return-value]

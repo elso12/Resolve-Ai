@@ -9,8 +9,6 @@ from app.services.ai_service import (
     fallback_classify,
     fallback_suggest_reply,
     fallback_summarize,
-    summarize_thread,
-    suggest_reply,
 )
 
 

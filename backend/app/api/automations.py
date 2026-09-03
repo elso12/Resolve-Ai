@@ -7,7 +7,7 @@ Restricted to Support Agents, Managers, and Admins.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import desc, select

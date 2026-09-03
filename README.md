@@ -9,7 +9,9 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![pgvector](https://img.shields.io/badge/pgvector-0.8-336791)](https://github.com/pgvector/pgvector)
-[![Pytest](https://img.shields.io/badge/Pytest-26%2F26%20Passed-brightgreen?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![Pytest](https://img.shields.io/badge/Pytest-44%2F44%20Passed-brightgreen?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?logo=prometheus&logoColor=white)](https://prometheus.io/)
+[![Redis](https://img.shields.io/badge/Redis-Rate%20Limiting-DC382D?logo=redis&logoColor=white)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -23,13 +25,15 @@
 
 ## 📑 Table of Contents
 1. [Executive Overview](#-executive-overview)
-2. [System Architecture](#-system-architecture)
-3. [Core Technical Innovations](#-core-technical-innovations)
-4. [Enterprise Feature Matrix](#-enterprise-feature-matrix)
-5. [API Reference & Schema Specification](#-api-reference--schema-specification)
-6. [Local Quickstart & Development](#-local-quickstart--development)
-7. [Automated Testing & Verification](#-automated-testing--verification)
-8. [License](#-license)
+2. [System Walkthrough & Interfaces](#-system-walkthrough--interfaces)
+3. [Local / Demo Credentials](#-local--demo-credentials)
+4. [System Architecture](#-system-architecture)
+5. [Core Technical Innovations](#-core-technical-innovations)
+6. [Enterprise Feature Matrix](#-enterprise-feature-matrix)
+7. [API Reference & Schema Specification](#-api-reference--schema-specification)
+8. [Local Quickstart & Development](#-local-quickstart--development)
+9. [Automated Testing & Verification](#-automated-testing--verification)
+10. [License](#-license)
 
 ---
 
@@ -42,6 +46,76 @@ Modern customer support operations face high ticket volumes, escalating SLA brea
 - **Human-In-The-Loop (HITL) Safety:** Low-risk actions (order tracking, ticket tagging) execute autonomously; high-risk actions (refunds > $25, account password resets) generate staged proposals requiring explicit agent review.
 - **Enterprise Hybrid Search:** Combines dense semantic vectors (`pgvector` cosine similarity) with sparse lexical search (`tsvector` BM25 full-text search) fused using Reciprocal Rank Fusion (RRF, $k = 60$).
 - **Agent Collision Prevention:** Real-time WebSockets with 30-second presence heartbeats alert agents when colleagues are viewing or drafting replies on the same ticket.
+- **API Idempotency & Rate Limiting:** Standard `Idempotency-Key: <UUID>` header with 24-hour response caching and tiered Redis-backed sliding-window rate limiting (10 req/min for AI, 60 req/min standard) with `HTTP 429` and `Retry-After`.
+- **Prometheus Observability & Probes:** Native `GET /metrics` latency histograms, counters, gauges, and sub-system health readiness probes on `GET /health` (`database: ok`, `cache: ok`, `uptime_seconds: float`).
+- **Enterprise Webhook Dispatcher:** Outbound webhook notifications (Slack, PagerDuty, custom CRMs) with HMAC SHA-256 cryptographic signatures (`X-Signature-SHA256`) and 3-attempt exponential backoff retries.
+
+---
+
+### 📸 System Walkthrough & Interfaces
+
+ResolveAI is engineered with a high-density, multi-pane productivity architecture designed to eliminate tab switching, prevent duplicate work across distributed agent teams, and ensure strict safety oversight for AI operations.
+
+#### 1. 3-Pane Agent Inbox & Live Collision Alerts
+The core workspace unifies ticket queue telemetry, live message streams, and collaborative editing into an ergonomic 3-pane layout:
+- **Filter Queue Pane:** Left rail displaying active ticket queues (**All**, **Assigned to Me**, **Unassigned**, **Urgent / High Priority**, **Resolved**) with real-time numeric badges that dynamically reflect new customer submissions.
+- **Ticket Feed Pane:** Middle rail providing high-density list items displaying customer names, urgency badges, SLA breach countdown timers, and preview snippets.
+- **Workspace & Dual-Mode Composer:** Right rail featuring the customer profile header, timeline message history, and a rich dual-mode composer allowing agents to toggle between **Public Reply** (sent to customer) and **Internal Note** (private team context, highlighted with an amber border).
+- **Live Collision Heartbeats:** Backed by real-time WebSocket presence channels, an ambient warning banner alerts the agent if another team member is viewing or drafting a reply on the current ticket, preventing embarrassing duplicate customer interactions.
+
+![3-Pane Agent Inbox](docs/screenshots/inbox.png)
+
+| Interface Element | Technical Implementation | Operational Benefit |
+| :--- | :--- | :--- |
+| **Queue Filter Rail** | Dynamic state-managed badge counters with zero-suppression | Instant visibility into SLA-critical queues and unassigned tickets |
+| **Collision Warning Banner** | WebSocket `/ws/tickets/{id}` presence events + 30s heartbeats | Eliminates agent collision and duplicate customer replies |
+| **Dual-Mode Composer** | Tabbed state (`public` vs `internal`) with Markdown & shortcuts | Clean separation between customer-facing responses and team notes |
+| **AI Copilot Assist** | One-click `/ai/tickets/{id}/suggest-reply` integration | Pre-generates context-aware replies grounded in verified RAG docs |
+
+---
+
+#### 2. Human-In-The-Loop (HITL) Action Proposal Drawer
+ResolveAI implements blast-radius containment for autonomous AI tool-calling. While read-only or low-risk tasks execute automatically, sensitive mutations gate behind explicit human validation:
+- **Risk Assessment Engine:** Analyzes tool parameters against defined enterprise risk thresholds (e.g., refund amounts > $25, account password resets, email address modifications).
+- **Action Proposal Drawer:** Renders staged action cards inside the agent workspace displaying the tool name, estimated monetary or operational impact, raw structured parameters, and risk level.
+- **One-Click Approval / Rejection:** Agents can inspect the proposed parameters, verify customer intent, and execute or reject the action with a single click—triggering transactional backend execution and updating the ticket timeline.
+
+![Human-In-The-Loop Action Proposal Drawer](docs/screenshots/hitl_proposals.png)
+
+| Component | Policy / Gate | Execution Workflow |
+| :--- | :--- | :--- |
+| **Low-Risk Actions** | Tagging, order tracking, knowledge lookups | Autonomous background execution with audit trail entry |
+| **High-Risk Financial** | Refunds > $25.00, credit balance adjustments | Staged as `PENDING_APPROVAL`; requires human agent sign-off |
+| **High-Risk Auth / Security** | Password resets, 2FA bypass, role modifications | Staged as `HIGH` risk; logs agent ID upon manual approval |
+| **Audit Ledger** | Append-only execution record in `action_proposals` | Full historical traceability with input parameters and results |
+
+---
+
+#### 3. Manager SLA & AI Cost Telemetry Dashboard
+Designed for operations leadership to monitor fleet health, response commitments, and LLM budget expenditure in real time:
+- **Live SLA Monitoring:** Tracks real-time First Response Time (MTTA) and Mean Time to Resolution (MTTR) against tiered SLA policies (Bronze, Silver, Gold, Enterprise).
+- **SLA Breach Watchdog:** 60-second autonomous background daemon evaluates open tickets against target thresholds, automatically tagging nearing-breach tickets and escalating breached commitments.
+- **AI Cost & Token Telemetry:** Tracks aggregate prompt tokens, completion tokens, estimated USD expenditure, and model latency percentiles (p50/p95/p99) across all automated operations.
+- **ECA Automation Rules:** Event-Condition-Action rule builder enabling managers to define declarative routing and auto-assignment rules without writing code.
+
+![Manager SLA & AI Cost Telemetry Dashboard](docs/screenshots/manager_dashboard.png)
+
+| Telemetry Metric | Measurement Source | Target SLA / Threshold |
+| :--- | :--- | :--- |
+| **First Response Time (MTTA)** | First message timestamp minus ticket creation | < 15 min (Enterprise), < 1 hr (Standard) |
+| **Mean Time to Resolution (MTTR)** | Resolution timestamp minus ticket creation | < 4 hrs (Critical), < 24 hrs (Normal) |
+| **SLA Compliance Rate** | Ratio of non-breached tickets over rolling 30 days | Target > 98.5% across all service tiers |
+| **LLM Token & Cost Tracking** | Per-interaction token consumption (`ai_interactions`) | Cost per resolved ticket tracked in real-time USD |
+
+---
+
+### 🔑 Local / Demo Credentials
+
+| Role | Email | Password | Access Level |
+| :--- | :--- | :--- | :--- |
+| **Support Agent** | `agent@resolveai.dev` | `Password123!` | Inbox, Ticket Triage, Suggested Replies |
+| **Customer** | `customer@resolveai.dev` | `Password123!` | Portal, RAG Knowledge Search, Ticket Submission |
+| **Team Manager** | `manager@resolveai.dev` | `Password123!` | Analytics Dashboard, ECA Automations, SLA Monitor |
 
 ---
 
@@ -152,6 +226,7 @@ Support managers build custom automation rules:
 | **AI Copilot** | Thread summarization, context-aware suggested reply drafting, urgency scoring, and entity extraction. |
 | **AI Observability** | Real-time token tracking (prompt & completion), runtime latency (ms), USD cost accounting, and human evaluation tracking (acceptance rate %). |
 | **Customer Portal** | Self-service help center, grounded RAG instant answer widget, live message thread composer, and ticket tracking. |
+| **Outbound Webhooks** | Real-time event notifications (Slack, PagerDuty, CRM) with HMAC SHA-256 cryptographic signatures and exponential retries. |
 
 ---
 
@@ -179,6 +254,14 @@ All endpoints are versioned under `/api/v1`. Interactive OpenAPI documentation i
 | `POST` | `/api/v1/analytics/sla/check-now` | Agent / Admin | On-demand trigger for SLA breach monitoring daemon. |
 | `GET` | `/api/v1/automations` | Manager / Admin | List ECA workflow automation rules. |
 | `POST` | `/api/v1/automations` | Manager / Admin | Create new dynamic workflow rule. |
+| `POST` | `/api/v1/ai/classify` | Authenticated | Standalone AI triage & sentiment classification. |
+| `GET` | `/api/v1/webhooks` | Manager / Admin | List outbound webhook subscriptions. |
+| `POST` | `/api/v1/webhooks` | Manager / Admin | Register outbound webhook with HMAC SHA-256 secret. |
+| `GET` | `/api/v1/webhooks/{id}` | Manager / Admin | Retrieve a specific webhook subscription by ID. |
+| `DELETE` | `/api/v1/webhooks/{id}` | Manager / Admin | Delete outbound webhook subscription. |
+| `POST` | `/api/v1/webhooks/{id}/test` | Manager / Admin | Dispatch test ping event with cryptographic signature. |
+| `GET` | `/health` | Public | Sub-system readiness probe (database: ok, cache: ok, uptime). |
+| `GET` | `/metrics` | Public | Prometheus scrape telemetry (latency histograms, counters, gauges). |
 | `WS` | `/api/v1/ws/tickets/{ticket_id}` | Authenticated | Real-time WebSocket connection for collisions and messages. |
 
 ---
@@ -261,36 +344,18 @@ pytest -v
 Expected output:
 ```text
 ============================== test session starts ==============================
-collected 26 items
+collected 44 items
 
-tests/test_ai_service.py::test_fallback_classify_billing PASSED           [  3%]
-tests/test_ai_service.py::test_fallback_classify_technical PASSED         [  7%]
-tests/test_ai_service.py::test_fallback_classify_urgent_escalation PASSED  [ 11%]
-tests/test_ai_service.py::test_fallback_summarize_structure PASSED        [ 15%]
-tests/test_ai_service.py::test_fallback_suggest_reply PASSED              [ 19%]
-tests/test_ai_service.py::test_classify_and_triage_resilience PASSED      [ 23%]
-tests/test_auth.py::test_register_success PASSED                          [ 26%]
-tests/test_auth.py::test_register_weak_password PASSED                    [ 30%]
-tests/test_auth.py::test_register_duplicate_email PASSED                  [ 34%]
-tests/test_auth.py::test_login_success PASSED                             [ 38%]
-tests/test_auth.py::test_login_invalid_password PASSED                    [ 42%]
-tests/test_auth.py::test_get_me PASSED                                    [ 46%]
-tests/test_rbac.py::test_customer_cannot_access_analytics PASSED          [ 50%]
-tests/test_rbac.py::test_customer_cannot_update_ticket_status PASSED      [ 53%]
-tests/test_rbac.py::test_customer_cannot_assign_tickets PASSED            [ 57%]
-tests/test_rbac.py::test_customer_cannot_publish_knowledge_articles PASSED  [ 61%]
-tests/test_rbac.py::test_agent_can_access_analytics_and_articles PASSED   [ 65%]
-tests/test_sla.py::test_sla_policy_tier_targets PASSED                    [ 69%]
-tests/test_sla.py::test_calculate_sla_due_dates PASSED                    [ 73%]
-tests/test_sla.py::test_record_first_response_on_time_and_breach PASSED   [ 76%]
-tests/test_sla.py::test_record_resolution_breach PASSED                   [ 80%]
-tests/test_tickets.py::test_create_ticket_success PASSED                  [ 84%]
-tests/test_tickets.py::test_idor_protection_cross_customer PASSED         [ 88%]
-tests/test_tickets.py::test_fsm_valid_state_transitions PASSED            [ 92%]
-tests/test_tickets.py::test_fsm_invalid_state_transition_fails PASSED     [ 96%]
-tests/test_tickets.py::test_customer_cannot_post_internal_notes PASSED    [100%]
+tests/test_ai_service.py ......                                          [ 13%]
+tests/test_auth.py ......                                                [ 27%]
+tests/test_idempotency.py .......                                        [ 43%]
+tests/test_metrics.py .....                                              [ 54%]
+tests/test_rbac.py .....                                                 [ 65%]
+tests/test_sla.py ....                                                   [ 75%]
+tests/test_tickets.py .....                                              [ 86%]
+tests/test_webhooks.py ......                                            [100%]
 
-======================== 26 passed in 102.87s (0:01:42) ========================
+============================= 44 passed in 251.91s =============================
 ```
 
 ### Run Frontend Production Build & Typecheck

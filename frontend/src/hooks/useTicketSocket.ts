@@ -159,8 +159,8 @@ export const useTicketSocket = ({
               default:
                 break;
             }
-          } catch (err) {
-            console.error('Failed to parse WebSocket message:', err);
+          } catch {
+            // Failed to parse message
           }
         };
 
@@ -175,11 +175,11 @@ export const useTicketSocket = ({
           }
         };
 
-        socket.onerror = (err) => {
-          console.debug('WebSocket error:', err);
+        socket.onerror = () => {
+          // Socket error
         };
-      } catch (err) {
-        console.error('Failed to initialize WebSocket:', err);
+      } catch {
+        // Failed to initialize WebSocket
       }
     };
 

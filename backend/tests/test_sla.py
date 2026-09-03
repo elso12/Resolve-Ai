@@ -3,12 +3,11 @@ ResolveAI — SLA Policy & Breach Calculation Test Suite
 """
 
 import datetime
-from app.models.enums import TicketPriority, TicketStatus
+from app.models.enums import TicketPriority
 from app.models.sla import get_sla_policy
 from app.models.ticket import Ticket
 from app.services.sla_service import (
     calculate_sla_due_dates,
-    evaluate_active_ticket_sla,
     record_first_response,
     record_resolution,
 )

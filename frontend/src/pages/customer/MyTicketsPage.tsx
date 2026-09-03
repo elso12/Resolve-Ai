@@ -41,7 +41,6 @@ export const MyTicketsPage: React.FC = () => {
       const res = await api.get('/tickets');
       setTickets(res.data);
     } catch (err: any) {
-      console.error('Failed to load tickets:', err);
       setError(
         err.response?.data?.detail || 'Unable to load your tickets. Please check your connection and try again.'
       );

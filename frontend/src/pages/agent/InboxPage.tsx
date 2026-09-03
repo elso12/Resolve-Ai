@@ -31,8 +31,8 @@ export const InboxPage: React.FC = () => {
           setSelectedTicket(null);
         }
       }
-    } catch (err) {
-      console.error('Failed to fetch tickets from backend:', err);
+    } catch {
+      // Network or API error handled
     } finally {
       setIsLoadingTickets(false);
     }
@@ -47,17 +47,10 @@ export const InboxPage: React.FC = () => {
     try {
       const res = await api.get(`/tickets/${id}`);
       setSelectedTicket(res.data);
-    } catch (err) {
-      console.error(`Failed to load details for ticket ${id}:`, err);
-      // Fallback to local ticket in state if API fails
-      const fallback = tickets.find(
-        (t) => String(t.id) === String(id) || t.ticket_number === String(id)
-      );
-      if (fallback) {
-        setSelectedTicket(fallback);
-      }
+    } catch {
+      // Failed to load ticket details
     }
-  }, [tickets]);
+  }, []);
 
   // Fetch full ticket details & messages when selectedTicketId changes
   useEffect(() => {
@@ -99,8 +92,7 @@ export const InboxPage: React.FC = () => {
       setSelectedTicket((prev) =>
         prev && String(prev.id) === String(ticketId) ? { ...prev, status: updatedTicket.status } : prev
       );
-    } catch (err) {
-      console.error('Failed to update status:', err);
+    } catch {
       alert('Could not update status. Check that the transition is valid.');
     }
   };
@@ -121,8 +113,7 @@ export const InboxPage: React.FC = () => {
           ? { ...prev, assigned_agent_id: updatedTicket.assigned_agent_id }
           : prev
       );
-    } catch (err) {
-      console.error('Failed to assign ticket:', err);
+    } catch {
       alert('Could not assign ticket.');
     }
   };
@@ -139,8 +130,7 @@ export const InboxPage: React.FC = () => {
       // Refetch ticket details to get fresh messages list with sender metadata
       const res = await api.get(`/tickets/${ticketId}`);
       setSelectedTicket(res.data);
-    } catch (err) {
-      console.error('Failed to post message:', err);
+    } catch {
       alert('Failed to send message. Please try again.');
     } finally {
       setIsSendingMessage(false);

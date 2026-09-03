@@ -66,6 +66,9 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://postgres:postgrespassword@localhost:5432/resolveai",  # type: ignore[assignment]
     )
 
+    # ── Redis ────────────────────────────────────────────────────────────
+    REDIS_URL: str = Field(default="redis://localhost:6379/0")
+
     # ── External Services ────────────────────────────────────────────────
     OPENAI_API_KEY: str | None = None
 
@@ -104,10 +107,17 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def set_debug_from_environment(self) -> "Settings":
-        """Auto-enable DEBUG in development unless explicitly overridden."""
-        if self.ENVIRONMENT == Environment.DEVELOPMENT:
-            self.DEBUG = True
+    def validate_cors_origins(self) -> "Settings":
+        """
+        Enforce that wildcard CORS origins ('*') are strictly disallowed in production.
+        """
+        if self.ENVIRONMENT == Environment.PRODUCTION:
+            origins = [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+            if "*" in origins:
+                raise ValueError(
+                    "Wildcard '*' CORS origin is strictly forbidden in production. "
+                    "Explicitly configure permitted domains in CORS_ORIGINS."
+                )
         return self
 
     @property
@@ -120,7 +130,10 @@ class Settings(BaseSettings):
         """Parse comma-separated CORS_ORIGINS into a list of origin strings."""
         if not self.CORS_ORIGINS:
             return []
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        origins = [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        if self.ENVIRONMENT == Environment.PRODUCTION:
+            origins = [o for o in origins if o != "*"]
+        return origins
 
 
 # ── Singleton ────────────────────────────────────────────────────────────────

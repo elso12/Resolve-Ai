@@ -65,8 +65,12 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     try:
         yield session
         await session.commit()
-    except Exception:
-        await session.rollback()
+    except Exception as exc:
+        logger.warning("db_session_rollback_triggered", error=str(exc))
+        try:
+            await session.rollback()
+        except Exception as rollback_err:
+            logger.error("db_session_rollback_failed", error=str(rollback_err))
         raise
     finally:
         await session.close()

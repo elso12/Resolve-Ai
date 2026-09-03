@@ -6,8 +6,6 @@ Pydantic schemas for authentication API endpoints.
 
 from __future__ import annotations
 
-from typing import Annotated
-
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.enums import UserRole

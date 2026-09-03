@@ -24,6 +24,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.enums import UserRole
 from app.models.user import User
+from app.core.metrics import record_ws_connect, record_ws_disconnect
 
 logger = get_logger(__name__)
 
@@ -147,6 +148,7 @@ class ConnectionManager:
             user_name=user.full_name,
             role=user.role.value,
         )
+        record_ws_connect(user.role.value)
 
         # If user is a support specialist / agent, track viewer collision
         if user.role in (UserRole.AGENT, UserRole.MANAGER, UserRole.ADMIN):
@@ -168,6 +170,7 @@ class ConnectionManager:
                 del self._org_connections[org_id]
 
         logger.info("websocket_client_disconnected", ticket_id=ticket_key, user_id=user.id)
+        record_ws_disconnect(user.role.value)
 
         # If agent, check if any remaining connections for this user exist on the ticket
         if user.role in (UserRole.AGENT, UserRole.MANAGER, UserRole.ADMIN):

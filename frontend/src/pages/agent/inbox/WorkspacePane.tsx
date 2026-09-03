@@ -97,8 +97,8 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
     try {
       const res = await api.get(`/tickets/${ticket.id}/actions`);
       setActions(res.data);
-    } catch (err) {
-      console.error('Failed to fetch action proposals:', err);
+    } catch {
+      // Failed to fetch action proposals
     }
   }, [ticket?.id]);
 
@@ -125,8 +125,8 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
       if (onActionExecuted) {
         await onActionExecuted();
       }
-    } catch (err) {
-      console.error('Failed to approve action:', err);
+    } catch {
+      // Failed to approve action
     } finally {
       setIsApprovingId(null);
     }
@@ -141,8 +141,8 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
       if (onActionExecuted) {
         await onActionExecuted();
       }
-    } catch (err) {
-      console.error('Failed to reject action:', err);
+    } catch {
+      // Failed to reject action
     } finally {
       setIsRejectingId(null);
     }
@@ -186,8 +186,8 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
           await api.post(`/analytics/ai/interactions/${draftInteractionId}/feedback`, {
             feedback: 'ACCEPTED',
           });
-        } catch (e) {
-          console.debug('Failed to record AI feedback:', e);
+        } catch {
+          // Ignored
         }
       }
       setDraftReply(null);
@@ -203,8 +203,8 @@ export const WorkspacePane: React.FC<WorkspacePaneProps> = ({
           await api.post(`/analytics/ai/interactions/${draftInteractionId}/feedback`, {
             feedback: 'EDITED',
           });
-        } catch (e) {
-          console.debug('Failed to record AI feedback:', e);
+        } catch {
+          // Ignored
         }
       }
       setDraftReply(null);

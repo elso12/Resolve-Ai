@@ -77,7 +77,6 @@ export const TicketDetailPage: React.FC = () => {
       const messagesRes = await api.get(`/tickets/${id}/messages`);
       setMessages(messagesRes.data);
     } catch (err: any) {
-      console.error('Failed to load ticket details:', err);
       setError(
         err.response?.data?.detail || 'Could not load ticket details. The ticket may not exist or access is restricted.'
       );
@@ -114,7 +113,6 @@ export const TicketDetailPage: React.FC = () => {
         setTicket({ ...ticket, status: 'in_progress' });
       }
     } catch (err: any) {
-      console.error('Failed to post reply:', err);
       alert(err.response?.data?.detail || 'Failed to submit your reply. Please try again.');
     } finally {
       setIsSubmitting(false);

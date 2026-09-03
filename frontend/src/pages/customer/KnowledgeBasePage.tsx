@@ -70,51 +70,8 @@ export const KnowledgeBasePage: React.FC = () => {
         params: { category: categoryParam || undefined },
       });
       setArticles(res.data);
-    } catch (err) {
-      console.warn('Could not fetch articles from backend; using mock knowledge base.', err);
-      // Fallback seed articles for local presentation
-      setArticles([
-        {
-          id: 1,
-          title: 'How to Reset Your Account Password and Enable 2FA',
-          slug: 'how-to-reset-password-2fa',
-          content:
-            'To reset your password, visit Settings > Security and click Reset Password. Enter your email address to receive a secure one-time verification link. To enable Two-Factor Authentication (2FA), toggle on Authenticator App and scan the QR code using Google Authenticator or 1Password.',
-          category: 'Account & Security',
-          is_published: true,
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: 2,
-          title: 'Understanding Invoices, Billing Cycles, and Upgrades',
-          slug: 'understanding-invoices-billing',
-          content:
-            'Invoices are generated automatically on the 1st of every month. You can update your payment method or download past PDF invoices under Billing > Payment Methods. When upgrading your plan, proration is calculated automatically based on remaining billing days.',
-          category: 'Billing & Subscriptions',
-          is_published: true,
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: 3,
-          title: 'REST API Authentication and Webhook Setup Guide',
-          slug: 'rest-api-authentication-webhooks',
-          content:
-            'ResolveAI uses Bearer Token authentication for all REST API endpoints. Include Authorization: Bearer <your_api_key> in your HTTP headers. Webhooks can be configured under Settings > Developer to receive real-time JSON events for ticket status updates and agent replies.',
-          category: 'Technical & API',
-          is_published: true,
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: 4,
-          title: 'Quick Start: Configuring SLA Tiers and Automated Escalation',
-          slug: 'quick-start-sla-escalations',
-          content:
-            'Service Level Agreements (SLAs) determine target response and resolution times based on ticket priority (Critical: 1 hr, High: 4 hrs, Medium: 24 hrs, Low: 48 hrs). Tickets at risk of breach are automatically highlighted in the Agent High Priority queue.',
-          category: 'Getting Started',
-          is_published: true,
-          created_at: new Date().toISOString(),
-        },
-      ]);
+    } catch {
+      setArticles([]);
     } finally {
       setIsLoadingArticles(false);
     }
@@ -130,65 +87,12 @@ export const KnowledgeBasePage: React.FC = () => {
     try {
       const res = await api.post('/knowledge/ask', { question: aiQuestion.trim() });
       setAiResponse(res.data);
-    } catch (err) {
-      console.error('RAG request failed, using grounded fallback generator', err);
-      // Fallback simulation matching strict grounding
-      const q = aiQuestion.toLowerCase();
-      if (q.includes('password') || q.includes('2fa') || q.includes('reset')) {
-        setAiResponse({
-          answer:
-            "According to **'How to Reset Your Account Password and Enable 2FA'**, you can reset your password by going to Settings > Security and clicking 'Reset Password'. You can also enable 2FA with an authenticator app like Google Authenticator or 1Password.",
-          sources: [
-            {
-              id: 1,
-              title: 'How to Reset Your Account Password and Enable 2FA',
-              slug: 'how-to-reset-password-2fa',
-              category: 'Account & Security',
-              similarity_score: 0.92,
-              snippet:
-                'To reset your password, visit Settings > Security and click Reset Password...',
-            },
-          ],
-        });
-      } else if (q.includes('invoice') || q.includes('bill') || q.includes('upgrade') || q.includes('payment')) {
-        setAiResponse({
-          answer:
-            "According to **'Understanding Invoices, Billing Cycles, and Upgrades'**, invoices are generated on the 1st of every month. You can manage your payment methods and download invoices under Billing > Payment Methods.",
-          sources: [
-            {
-              id: 2,
-              title: 'Understanding Invoices, Billing Cycles, and Upgrades',
-              slug: 'understanding-invoices-billing',
-              category: 'Billing & Subscriptions',
-              similarity_score: 0.88,
-              snippet:
-                'Invoices are generated automatically on the 1st of every month...',
-            },
-          ],
-        });
-      } else if (q.includes('api') || q.includes('webhook') || q.includes('token') || q.includes('auth')) {
-        setAiResponse({
-          answer:
-            "According to **'REST API Authentication and Webhook Setup Guide'**, all REST API requests require Bearer token authorization headers. Webhooks can be configured under Settings > Developer to receive real-time notifications.",
-          sources: [
-            {
-              id: 3,
-              title: 'REST API Authentication and Webhook Setup Guide',
-              slug: 'rest-api-authentication-webhooks',
-              category: 'Technical & API',
-              similarity_score: 0.89,
-              snippet:
-                'ResolveAI uses Bearer Token authentication for all REST API endpoints...',
-            },
-          ],
-        });
-      } else {
-        setAiResponse({
-          answer:
-            'I cannot find this in our knowledge base; let me connect you with a human agent.',
-          sources: [],
-        });
-      }
+    } catch {
+      setAiResponse({
+        answer:
+          'The AI knowledge assistant is currently unreachable. Please try your search again later or browse published articles below.',
+        sources: [],
+      });
     } finally {
       setIsAskingAi(false);
     }

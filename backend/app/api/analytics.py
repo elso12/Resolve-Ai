@@ -7,10 +7,10 @@ Calculates real-time MTTA, MTTR, SLA compliance rates, and queue distributions.
 from __future__ import annotations
 
 import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger

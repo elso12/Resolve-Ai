@@ -49,8 +49,8 @@ export const AutomationsPage: React.FC = () => {
     try {
       const res = await api.get('/automations');
       setRules(res.data);
-    } catch (err: any) {
-      console.error('Failed to load automation rules:', err);
+    } catch {
+      // Error loading automation rules
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -63,8 +63,8 @@ export const AutomationsPage: React.FC = () => {
         is_active: !rule.is_active,
       });
       setRules((prev) => prev.map((r) => (r.id === rule.id ? res.data : r)));
-    } catch (err) {
-      console.error('Failed to toggle rule active state:', err);
+    } catch {
+      // Failed to toggle rule
     }
   };
 
@@ -73,8 +73,8 @@ export const AutomationsPage: React.FC = () => {
     try {
       await api.delete(`/automations/${id}`);
       setRules((prev) => prev.filter((r) => r.id !== id));
-    } catch (err) {
-      console.error('Failed to delete rule:', err);
+    } catch {
+      // Failed to delete rule
     }
   };
 

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:8000/api/v1',
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -30,8 +30,7 @@ api.interceptors.response.use(
         localStorage.removeItem('user');
         window.location.href = '/login';
       } else if (error.response.status === 403) {
-        console.error('Forbidden action');
-        // Handle 403 gracefully if needed
+        // Forbidden action handled cleanly
       }
     }
     return Promise.reject(error);

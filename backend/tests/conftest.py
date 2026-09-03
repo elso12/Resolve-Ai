@@ -7,11 +7,9 @@ and pre-authenticated user clients (Customer A, Customer B, Agent, Manager/Admin
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from pgvector.sqlalchemy import Vector
@@ -28,7 +26,7 @@ from app.core.security import create_access_token, get_password_hash
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import Customer, Organization, Ticket, TicketMessage, User, UserRole
+from app.models import Customer, Organization, User, UserRole
 
 
 # ── SQLite Compatibility Compilers for Postgres Types ─────────────────────────

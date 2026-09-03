@@ -95,5 +95,8 @@ jobs:
       - name: Run TypeScript Strict Typecheck
         run: npx tsc --noEmit
 
+      - name: Execute Vitest Component Tests
+        run: npm run test
+
       - name: Build Production Assets
         run: npm run build

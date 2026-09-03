@@ -8,7 +8,6 @@ typing indicators, and agent collision detection.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from jose import JWTError, jwt

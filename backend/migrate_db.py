@@ -1,53 +1,51 @@
-import asyncio
-from sqlalchemy import text
-from app.db.session import engine
-from app.db.base import Base
-# Import all models so metadata is complete
-import app.models  # noqa: F401
+"""
+ResolveAI — Database Migration Runner
 
-async def main():
-    async with engine.begin() as conn:
-        try:
-            print("Enabling vector extension...")
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-            print("Vector extension ready.")
-        except Exception as e:
-            print(f"Note on vector extension: {e}")
+Programmatically executes Alembic database migrations up to head.
+Supports both PostgreSQL (production / staging / CI) and SQLite (local dev).
+"""
 
-        try:
-            print("Creating all tables in Base.metadata...")
-            await conn.run_sync(Base.metadata.create_all)
-            print("Tables created successfully.")
-        except Exception as e:
-            print(f"Error creating tables: {e}")
+from __future__ import annotations
 
-        try:
-            print("Ensuring ai_metadata exists on ticket table...")
-            await conn.execute(text("ALTER TABLE ticket ADD COLUMN IF NOT EXISTS ai_metadata JSONB;"))
-            print("Ticket table verified.")
-        except Exception as e:
-            print(f"Note on ticket column: {e}")
+import os
+from alembic import command
+from alembic.config import Config
 
-        try:
-            print("Ensuring search_vector exists on knowledge_article table...")
-            if conn.dialect.name == "postgresql":
-                await conn.execute(text("ALTER TABLE knowledge_article ADD COLUMN IF NOT EXISTS search_vector TSVECTOR;"))
-                await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_knowledge_article_search_vector ON knowledge_article USING gin(search_vector);"))
-            else:
-                await conn.execute(text("ALTER TABLE knowledge_article ADD COLUMN search_vector TEXT;"))
-            print("KnowledgeArticle table verified.")
-        except Exception as e:
-            print(f"Note on search_vector column: {e}")
+from app.core.config import settings
+from app.core.logging import get_logger
 
-        try:
-            print("Ensuring sla_breached exists on ticket table...")
-            if conn.dialect.name == "postgresql":
-                await conn.execute(text("ALTER TABLE ticket ADD COLUMN IF NOT EXISTS sla_breached BOOLEAN DEFAULT FALSE;"))
-            else:
-                await conn.execute(text("ALTER TABLE ticket ADD COLUMN sla_breached BOOLEAN DEFAULT 0;"))
-            print("Ticket sla_breached column verified.")
-        except Exception as e:
-            print(f"Note on sla_breached column: {e}")
+logger = get_logger(__name__)
+
+
+def run_migrations(target_revision: str = "head") -> None:
+    """
+    Execute Alembic migrations programmatically up to the specified target revision.
+
+    Args:
+        target_revision: Target revision string (default: "head").
+    """
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    ini_path = os.path.join(backend_dir, "alembic.ini")
+
+    if not os.path.exists(ini_path):
+        raise FileNotFoundError(f"Alembic configuration file not found at: {ini_path}")
+
+    alembic_cfg = Config(ini_path)
+
+    # Inject application database URL into the Alembic configuration
+    db_url = str(settings.DATABASE_URL)
+    alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+
+    masked_target = db_url.split("@")[-1] if "@" in db_url else db_url
+    logger.info("migration_starting", target_revision=target_revision, database=masked_target)
+
+    try:
+        command.upgrade(alembic_cfg, target_revision)
+        logger.info("migration_success", target_revision=target_revision)
+    except Exception as exc:
+        logger.error("migration_failed", error=str(exc))
+        raise
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run_migrations()
