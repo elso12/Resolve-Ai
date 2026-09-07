@@ -136,37 +136,13 @@ app.include_router(webhooks_router, prefix=settings.API_V1_STR)
 
 
 # ── CORS Middleware ──────────────────────────────────────────────────────────
-cors_allowed_origins: list[str] = settings.cors_origins_list
-if not cors_allowed_origins:
-    if settings.ENVIRONMENT.value == "production":
-        cors_allowed_origins = []
-    else:
-        cors_allowed_origins = ["http://localhost:3000", "http://localhost:5173"]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_allowed_origins,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=[
-        "Authorization",
-        "Content-Type",
-        "Accept",
-        "X-Request-ID",
-        "X-Requested-With",
-        "Idempotency-Key",
-        "Retry-After",
-    ],
-    expose_headers=[
-        "X-Request-ID",
-        "X-Process-Time",
-        "Idempotency-Key",
-        "Retry-After",
-        "X-RateLimit-Limit",
-        "X-RateLimit-Remaining",
-        "X-Cache-Lookup",
-        "Idempotency-Replayed",
-    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.add_middleware(IdempotencyMiddleware)
