@@ -49,9 +49,60 @@ export const LoginPage: React.FC = () => {
 
     if (role === 'customer') {
       navigate('/portal/tickets', { replace: true });
+    } else if (role === 'manager') {
+      navigate('/manager/analytics', { replace: true });
     } else {
-      // agent, manager, admin
+      // agent, admin
       navigate('/agent/inbox', { replace: true });
+    }
+  };
+
+  const handleQuickDemoLogin = async (demoEmail: string, demoPassword: string, targetPath: string) => {
+    setEmail(demoEmail);
+    setPassword(demoPassword);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setIsLoading(true);
+
+    try {
+      // 1. Authenticate with backend
+      const loginRes = await api.post('/auth/login', {
+        email: demoEmail.trim(),
+        password: demoPassword,
+      });
+
+      const { access_token } = loginRes.data;
+
+      // 2. Fetch authenticated profile
+      const profileRes = await api.get('/auth/me', {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+        },
+      });
+
+      const userData = {
+        id: String(profileRes.data.id),
+        email: profileRes.data.email,
+        full_name: profileRes.data.full_name,
+        role: profileRes.data.role as UserRole,
+      };
+
+      // 3. Update Auth Context
+      login(access_token, userData);
+
+      // 4. Navigate to the target demo route
+      navigate(targetPath, { replace: true });
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      if (typeof detail === 'string') {
+        setErrorMessage(detail);
+      } else if (Array.isArray(detail)) {
+        setErrorMessage(detail.map((d: any) => d.msg || d).join(', '));
+      } else {
+        setErrorMessage('Failed to sign in with demo credentials. Please check backend connection.');
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -157,27 +208,6 @@ export const LoginPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const populateDemoCredentials = (role: 'customer' | 'agent') => {
-    if (role === 'customer') {
-      setEmail('alice@acme.com');
-      setPassword('Password123!');
-      setSelectedRole('customer');
-      if (mode === 'signup') {
-        setFullName('Alice Customer');
-        setOrgName('Acme Corp');
-      }
-    } else {
-      setEmail('agent@acme.com');
-      setPassword('Password123!');
-      setSelectedRole('agent');
-      if (mode === 'signup') {
-        setFullName('Sarah Agent');
-        setOrgName('Acme Support');
-      }
-    }
-    setErrorMessage(null);
   };
 
   return (
@@ -392,26 +422,107 @@ export const LoginPage: React.FC = () => {
             </button>
           </form>
 
-          {/* Quick Demo Pre-fill helper */}
-          <div className="mt-8 pt-6 border-t border-neutral-800/80">
-            <div className="flex items-center gap-1.5 text-xs text-neutral-400 mb-3 font-medium">
-              <Sparkles size={14} className="text-amber-400" />
-              <span>Quick Demo Autofill:</span>
+          {/* Quick Demo Access Card */}
+          <div className="mt-8 pt-6 border-t border-neutral-800">
+            <div className="flex items-center justify-between mb-3.5">
+              <div className="flex items-center gap-2">
+                <Sparkles size={16} className="text-amber-400" />
+                <span className="text-xs font-semibold text-neutral-200 uppercase tracking-wider">Quick Demo Access</span>
+              </div>
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-400 border border-neutral-700">
+                1-Click Instant Login
+              </span>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+
+            <div className="space-y-2.5">
+              {/* Button 1: 1-Click Demo Agent */}
               <button
                 type="button"
-                onClick={() => populateDemoCredentials('customer')}
-                className="text-xs py-1.5 px-2.5 rounded-md bg-neutral-800/60 hover:bg-neutral-800 text-neutral-300 border border-neutral-700/60 transition-colors text-center"
+                disabled={isLoading}
+                onClick={() => handleQuickDemoLogin('agent@resolveai.dev', 'Password123!', '/agent/inbox')}
+                className="w-full group flex items-center justify-between p-3 rounded-xl border border-neutral-800/90 bg-neutral-950/70 hover:bg-neutral-800/80 hover:border-blue-500/50 transition-all text-left cursor-pointer disabled:opacity-50"
               >
-                Customer (Alice)
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-blue-950/60 border border-blue-800/60 flex items-center justify-center text-sm shrink-0">
+                    👤
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-neutral-100 group-hover:text-white truncate">
+                      👤 1-Click Demo Agent
+                    </div>
+                    <div className="text-[11px] text-neutral-400 font-mono truncate">
+                      agent@resolveai.dev
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-blue-950 text-blue-300 border border-blue-800">
+                    AGENT
+                  </span>
+                  <span className="text-xs text-neutral-500 group-hover:text-blue-400 group-hover:translate-x-0.5 transition-all">
+                    →
+                  </span>
+                </div>
               </button>
+
+              {/* Button 2: 1-Click Demo Customer */}
               <button
                 type="button"
-                onClick={() => populateDemoCredentials('agent')}
-                className="text-xs py-1.5 px-2.5 rounded-md bg-neutral-800/60 hover:bg-neutral-800 text-neutral-300 border border-neutral-700/60 transition-colors text-center"
+                disabled={isLoading}
+                onClick={() => handleQuickDemoLogin('customer@resolveai.dev', 'Password123!', '/portal/tickets')}
+                className="w-full group flex items-center justify-between p-3 rounded-xl border border-neutral-800/90 bg-neutral-950/70 hover:bg-neutral-800/80 hover:border-purple-500/50 transition-all text-left cursor-pointer disabled:opacity-50"
               >
-                Agent (Sarah)
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-purple-950/60 border border-purple-800/60 flex items-center justify-center text-sm shrink-0">
+                    🛍️
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-neutral-100 group-hover:text-white truncate">
+                      🛍️ 1-Click Demo Customer
+                    </div>
+                    <div className="text-[11px] text-neutral-400 font-mono truncate">
+                      customer@resolveai.dev
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-purple-950 text-purple-300 border border-purple-800">
+                    CUSTOMER
+                  </span>
+                  <span className="text-xs text-neutral-500 group-hover:text-purple-400 group-hover:translate-x-0.5 transition-all">
+                    →
+                  </span>
+                </div>
+              </button>
+
+              {/* Button 3: 1-Click Demo Manager */}
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={() => handleQuickDemoLogin('manager@resolveai.dev', 'Password123!', '/manager/analytics')}
+                className="w-full group flex items-center justify-between p-3 rounded-xl border border-neutral-800/90 bg-neutral-950/70 hover:bg-neutral-800/80 hover:border-emerald-500/50 transition-all text-left cursor-pointer disabled:opacity-50"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-950/60 border border-emerald-800/60 flex items-center justify-center text-sm shrink-0">
+                    📊
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-neutral-100 group-hover:text-white truncate">
+                      📊 1-Click Demo Manager
+                    </div>
+                    <div className="text-[11px] text-neutral-400 font-mono truncate">
+                      manager@resolveai.dev
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300 border border-emerald-800">
+                    MANAGER
+                  </span>
+                  <span className="text-xs text-neutral-500 group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all">
+                    →
+                  </span>
+                </div>
               </button>
             </div>
           </div>
